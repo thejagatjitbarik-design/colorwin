@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
 const crypto = require('crypto');
+const { MongoClient } = require('mongodb');
 
 const app = express();
 const server = http.createServer(app);
@@ -14,6 +15,7 @@ const io = new Server(server, { cors: { origin: '*' } });
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'colourprediction_secret_2024';
 const DB_FILE = path.join(__dirname, 'db.json');
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://colorwin:ColorWin2024Pass%21@game.xfh9tju.mongodb.net/?retryWrites=true&w=majority';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 const RULES = {
@@ -26,23 +28,89 @@ const RULES = {
     INACTIVE_DAYS: 15         // days before account suspension
 };
 
-// ─── DB ────────────────────────────────────────────────────────────────────────
-function loadDB() {
-    if (!fs.existsSync(DB_FILE)) {
-        const init = {
-            users: [], rounds: [], bankAccounts: [], upiAccounts: [],
-            depositRequests: [], withdrawalRequests: [],
-            notifications: [], currentBankIndex: 0
-        };
-        fs.writeFileSync(DB_FILE, JSON.stringify(init, null, 2));
-        return init;
+// ─── DB & Cloud Persistence ───────────────────────────────────────────────────
+let inMemoryDB = null;
+let mongoCollection = null;
+let syncTimeout = null;
+
+async function initDatabase() {
+    let localData = {
+        users: [], rounds: [], bankAccounts: [], upiAccounts: [],
+        depositRequests: [], withdrawalRequests: [],
+        notifications: [], currentBankIndex: 0
+    };
+    if (fs.existsSync(DB_FILE)) {
+        try { localData = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8')); } catch {}
     }
-    const db = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
-    if (!db.upiAccounts) db.upiAccounts = [];
-    if (!db.notifications) db.notifications = [];
-    return db;
+    if (!localData.upiAccounts) localData.upiAccounts = [];
+    if (!localData.notifications) localData.notifications = [];
+    inMemoryDB = localData;
+
+    if (MONGODB_URI) {
+        try {
+            const client = new MongoClient(MONGODB_URI);
+            await client.connect();
+            const mdb = client.db('colorwin');
+            mongoCollection = mdb.collection('app_state');
+            console.log('✅ Connected to MongoDB Atlas permanent cloud database!');
+
+            const cloudDoc = await mongoCollection.findOne({ _id: 'main_state' });
+            if (cloudDoc && cloudDoc.data) {
+                inMemoryDB = cloudDoc.data;
+                console.log(`📦 Restored state from cloud: ${inMemoryDB.users.length} users, ${inMemoryDB.rounds.length} rounds.`);
+            } else {
+                await mongoCollection.replaceOne(
+                    { _id: 'main_state' },
+                    { _id: 'main_state', data: inMemoryDB },
+                    { upsert: true }
+                );
+                console.log('☁️ Initialized new state in MongoDB Atlas.');
+            }
+        } catch (err) {
+            console.error('⚠️ MongoDB Atlas error (using local db.json):', err.message);
+        }
+    }
 }
-function saveDB(db) { fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2)); }
+
+function loadDB() {
+    if (!inMemoryDB) {
+        if (fs.existsSync(DB_FILE)) {
+            try { inMemoryDB = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8')); } catch {}
+        }
+        if (!inMemoryDB) {
+            inMemoryDB = {
+                users: [], rounds: [], bankAccounts: [], upiAccounts: [],
+                depositRequests: [], withdrawalRequests: [],
+                notifications: [], currentBankIndex: 0
+            };
+        }
+    }
+    if (!inMemoryDB.upiAccounts) inMemoryDB.upiAccounts = [];
+    if (!inMemoryDB.notifications) inMemoryDB.notifications = [];
+    return inMemoryDB;
+}
+
+function saveDB(db) {
+    inMemoryDB = db;
+    try {
+        fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+    } catch {}
+
+    if (mongoCollection) {
+        if (syncTimeout) clearTimeout(syncTimeout);
+        syncTimeout = setTimeout(async () => {
+            try {
+                await mongoCollection.replaceOne(
+                    { _id: 'main_state' },
+                    { _id: 'main_state', data: inMemoryDB },
+                    { upsert: true }
+                );
+            } catch (err) {
+                console.error('Mongo sync error:', err.message);
+            }
+        }, 100);
+    }
+}
 
 function generateReferralCode(username) {
     return `CW-${username.slice(0, 3).toUpperCase()}${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
@@ -722,6 +790,7 @@ io.on('connection', (socket) => {
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 (async () => {
+    await initDatabase();
     const db = loadDB();
     if (!db.users.find(u => u.role === 'admin')) {
         const hashed = await bcrypt.hash('admin123', 10);
