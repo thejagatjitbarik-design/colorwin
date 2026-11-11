@@ -206,9 +206,11 @@ function connectSocket() {
     });
 
     socket.on('notification:new', (notif) => {
-        notifCount++;
-        updateNotifBadge();
-        addNotifToList(notif);
+        if (!notif.targetUserId || (currentUser && notif.targetUserId === currentUser.id)) {
+            notifCount++;
+            updateNotifBadge();
+            addNotifToList(notif);
+        }
     });
 }
 

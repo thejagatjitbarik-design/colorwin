@@ -222,6 +222,7 @@ async function loadUsers() {
                     <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
                         <input type="number" class="adjust-input" id="adj-${u.id}" placeholder="±">
                         <button class="btn-action btn-approve" onclick="adjustBalance('${u.id}')">Adjust</button>
+                        <button class="btn-action" style="background:rgba(108,92,231,0.2);color:var(--primary);border:1px solid rgba(108,92,231,0.3)" onclick="openNotificationForUser('${u.id}','${u.username}')">💬 Message</button>
                         ${u.suspended
                             ? `<button class="btn-action btn-approve" onclick="reactivateUser('${u.id}')">Reactivate</button>`
                             : `<button class="btn-action btn-reject" onclick="suspendUser('${u.id}')">Suspend</button>`
@@ -522,29 +523,66 @@ async function deleteUpi(id) {
 }
 
 // ─── Notifications ─────────────────────────────────────────────────────────────
+async function populateUserDropdown() {
+    try {
+        const res = await fetch(API + '/api/admin/users', { headers: authHeaders() });
+        const users = await res.json();
+        const select = document.getElementById('notif-target');
+        if (!select) return;
+        const currentVal = select.value;
+        let html = '<option value="all">📢 All Users (Broadcast)</option>';
+        users.forEach(u => {
+            html += `<option value="${u.id}">👤 ${u.username}</option>`;
+        });
+        select.innerHTML = html;
+        if (currentVal) select.value = currentVal;
+    } catch {}
+}
+
+async function openNotificationForUser(userId, username) {
+    showPage('notifications');
+    await populateUserDropdown();
+    const select = document.getElementById('notif-target');
+    if (select) select.value = userId;
+    const titleInput = document.getElementById('notif-title');
+    if (titleInput) {
+        titleInput.value = `Message for ${username}`;
+        titleInput.focus();
+    }
+}
+
 async function loadNotifications() {
     try {
+        populateUserDropdown();
         const res = await fetch(API + '/api/admin/notifications', { headers: authHeaders() });
         const notifs = await res.json();
         const list = document.getElementById('notif-list-admin');
         if (notifs.length === 0) {
             list.innerHTML = '<div style="text-align:center;color:var(--text-dim);padding:20px">No notifications sent yet</div>';
         } else {
-            list.innerHTML = notifs.map(n => `
+            list.innerHTML = notifs.map(n => {
+                const recipientLabel = n.targetUserId ? `👤 Private: ${n.targetUsername || 'User'}` : '📢 Broadcast: All Users';
+                const recipientBadge = n.targetUserId ? 'badge-pending' : 'badge-active';
+                return `
                 <div class="notif-admin-item">
                     <div class="notif-admin-info">
-                        <div class="notif-admin-title">${n.title}</div>
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                            <span class="badge ${recipientBadge}">${recipientLabel}</span>
+                            <span class="notif-admin-title" style="margin:0">${n.title}</span>
+                        </div>
                         <div class="notif-admin-msg">${n.message}</div>
                         <div class="notif-admin-time">${new Date(n.createdAt).toLocaleString()}</div>
                     </div>
                     <button class="btn-action btn-delete" onclick="deleteNotification('${n.id}')">🗑</button>
                 </div>
-            `).join('');
+            `}).join('');
         }
     } catch {}
 }
 
 async function sendNotification() {
+    const targetSelect = document.getElementById('notif-target');
+    const targetUserId = targetSelect ? targetSelect.value : 'all';
     const title = document.getElementById('notif-title').value.trim();
     const message = document.getElementById('notif-message').value.trim();
     if (!title || !message) return showMsg('notif-msg', 'Enter title and message', 'error');
@@ -552,10 +590,11 @@ async function sendNotification() {
     try {
         const res = await fetch(API + '/api/admin/notifications', {
             method: 'POST', headers: authHeaders(),
-            body: JSON.stringify({ title, message })
+            body: JSON.stringify({ title, message, targetUserId })
         });
         if (!res.ok) throw new Error('Failed');
-        showMsg('notif-msg', 'Notification sent to all users!', 'success');
+        const targetLabel = targetUserId === 'all' ? 'all users' : 'the selected user';
+        showMsg('notif-msg', `Notification sent to ${targetLabel}!`, 'success');
         document.getElementById('notif-title').value = '';
         document.getElementById('notif-message').value = '';
         loadNotifications();

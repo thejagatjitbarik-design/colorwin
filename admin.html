@@ -213,9 +213,15 @@
             <section id="page-notifications" class="page hidden">
                 <div class="section-card">
                     <h3>📢 Send Notification</h3>
+                    <div class="form-group">
+                        <label style="display:block;font-size:0.8rem;color:var(--text-dim);margin-bottom:6px">Send To</label>
+                        <select id="notif-target" style="width:100%;padding:12px 14px;background:rgba(255,255,255,0.06);border:1px solid var(--card-border);border-radius:10px;color:var(--text);font-size:0.9rem;outline:none">
+                            <option value="all">📢 All Users (Broadcast)</option>
+                        </select>
+                    </div>
                     <div class="form-group"><input type="text" id="notif-title" placeholder="Notification Title"></div>
-                    <div class="form-group"><textarea id="notif-message" placeholder="Message to all users" rows="3"></textarea></div>
-                    <button class="btn-primary" onclick="sendNotification()">📢 Send to All Users</button>
+                    <div class="form-group"><textarea id="notif-message" placeholder="Message content" rows="3"></textarea></div>
+                    <button class="btn-primary" onclick="sendNotification()">🚀 Send Notification</button>
                     <div id="notif-msg" class="msg hidden"></div>
                 </div>
                 <h3 style="margin:20px 0 10px">📋 Sent Notifications</h3>

@@ -181,6 +181,18 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(__dirname));
 
+app.get('/', (req, res) => {
+    const pubPath = path.join(__dirname, 'public', 'index.html');
+    if (fs.existsSync(pubPath)) return res.sendFile(pubPath);
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+app.get('/admin.html', (req, res) => {
+    const pubPath = path.join(__dirname, 'public', 'admin.html');
+    if (fs.existsSync(pubPath)) return res.sendFile(pubPath);
+    res.sendFile(path.join(__dirname, 'admin.html'));
+});
+
 function authMiddleware(req, res, next) {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(401).json({ error: 'No token' });
@@ -271,7 +283,8 @@ app.get('/api/game-state', (req, res) => res.json(getPublicState()));
 
 app.get('/api/notifications', authMiddleware, (req, res) => {
     const db = loadDB();
-    res.json((db.notifications || []).slice().reverse().slice(0, 30));
+    const userNotifs = (db.notifications || []).filter(n => !n.targetUserId || n.targetUserId === req.user.id);
+    res.json(userNotifs.slice().reverse().slice(0, 30));
 });
 
 app.post('/api/bet', authMiddleware, (req, res) => {
@@ -496,13 +509,29 @@ app.get('/api/admin/notifications', adminMiddleware, (req, res) => {
 });
 
 app.post('/api/admin/notifications', adminMiddleware, (req, res) => {
-    const { title, message } = req.body;
+    const { title, message, targetUserId } = req.body;
     if (!title || !message) return res.status(400).json({ error: 'Title and message required' });
     const db = loadDB();
-    const notif = { id: Date.now().toString(), title, message, createdAt: new Date().toISOString() };
+    let targetUsername = 'All Users';
+    if (targetUserId && targetUserId !== 'all') {
+        const u = db.users.find(usr => usr.id === targetUserId);
+        if (u) targetUsername = u.username;
+    }
+    const notif = {
+        id: Date.now().toString(),
+        title,
+        message,
+        targetUserId: (targetUserId && targetUserId !== 'all') ? targetUserId : null,
+        targetUsername,
+        createdAt: new Date().toISOString()
+    };
     db.notifications.push(notif);
     saveDB(db);
-    io.emit('notification:new', notif);
+    if (notif.targetUserId) {
+        io.to(`user_${notif.targetUserId}`).emit('notification:new', notif);
+    } else {
+        io.emit('notification:new', notif);
+    }
     res.json({ success: true, notification: notif });
 });
 
