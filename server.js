@@ -179,6 +179,7 @@ function settleRound(result) {
 // ─── Middleware ────────────────────────────────────────────────────────────────
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname));
 
 function authMiddleware(req, res, next) {
     const token = req.headers.authorization?.split(' ')[1];
