@@ -1,0 +1,157 @@
+{
+  "users": [
+    {
+      "id": "admin_1",
+      "username": "admin",
+      "password": "$2a$10$gY3Rz1SbZtwzRT/7JHi/cehkypVfdOqC7jnKxF7rqb5kg8cN2lPR2",
+      "balance": 0,
+      "role": "admin",
+      "totalBet": 0,
+      "totalWon": 0,
+      "totalDeposited": 0,
+      "totalBetsPlaced": 0,
+      "referralCode": "ADMIN",
+      "lastActiveAt": "2026-11-11T12:27:43.323Z",
+      "createdAt": "2026-11-11T12:27:43.332Z"
+    },
+    {
+      "id": "1794400682083",
+      "username": "Jagat",
+      "password": "$2a$10$djoOXAaH7bdfDd8Uc0pI4u5HA.ag/QmAmImBYZErdcatZpPszaHOa",
+      "balance": 60,
+      "role": "user",
+      "totalBet": 30,
+      "totalWon": 40,
+      "totalDeposited": 0,
+      "totalBetsPlaced": 3,
+      "referralCode": "CW-JAG8C98F6",
+      "referredBy": null,
+      "bankAccount": null,
+      "upiId": null,
+      "lastActiveAt": "2026-11-11T12:45:09.286Z",
+      "forceSuspended": false,
+      "createdAt": "2026-11-11T12:38:02.084Z"
+    },
+    {
+      "id": "1794400970362",
+      "username": "Jaggu",
+      "password": "$2a$10$3HYJtZwDngLOx2mpbjRFM.e67OhOpjUh2W4vEVjVXVuWBMyyMW/Pe",
+      "balance": 50,
+      "role": "user",
+      "totalBet": 20,
+      "totalWon": 20,
+      "totalDeposited": 0,
+      "totalBetsPlaced": 2,
+      "referralCode": "CW-JAG45291E",
+      "referredBy": "1794400682083",
+      "bankAccount": null,
+      "upiId": null,
+      "lastActiveAt": "2026-11-11T12:44:39.524Z",
+      "forceSuspended": false,
+      "createdAt": "2026-11-11T12:42:50.362Z"
+    }
+  ],
+  "rounds": [
+    {
+      "id": 1794400413553,
+      "result": "red",
+      "bets": [],
+      "totalBet": 0,
+      "totalPayout": 0,
+      "profit": 0,
+      "timestamp": "2026-11-11T12:38:10.966Z"
+    },
+    {
+      "id": 1794400700979,
+      "result": "violet",
+      "bets": [
+        {
+          "userId": "1794400682083",
+          "username": "Jagat",
+          "color": "violet",
+          "amount": 10,
+          "won": true,
+          "payout": 20
+        }
+      ],
+      "totalBet": 10,
+      "totalPayout": 20,
+      "profit": -10,
+      "timestamp": "2026-11-11T12:39:41.653Z"
+    },
+    {
+      "id": 1794400791655,
+      "result": "red",
+      "bets": [],
+      "totalBet": 0,
+      "totalPayout": 0,
+      "profit": 0,
+      "timestamp": "2026-11-11T12:43:21.087Z"
+    },
+    {
+      "id": 1794401011104,
+      "result": "green",
+      "bets": [
+        {
+          "userId": "1794400682083",
+          "username": "Jagat",
+          "color": "green",
+          "amount": 10,
+          "won": true,
+          "payout": 20
+        },
+        {
+          "userId": "1794400970362",
+          "username": "Jaggu",
+          "color": "green",
+          "amount": 10,
+          "won": true,
+          "payout": 20
+        }
+      ],
+      "totalBet": 20,
+      "totalPayout": 40,
+      "profit": -20,
+      "timestamp": "2026-11-11T12:44:05.148Z"
+    },
+    {
+      "id": 1794401055153,
+      "result": "red",
+      "bets": [
+        {
+          "userId": "1794400970362",
+          "username": "Jaggu",
+          "color": "violet",
+          "amount": 10,
+          "won": false,
+          "payout": 0
+        },
+        {
+          "userId": "1794400682083",
+          "username": "Jagat",
+          "color": "green",
+          "amount": 10,
+          "won": false,
+          "payout": 0
+        }
+      ],
+      "totalBet": 20,
+      "totalPayout": 0,
+      "profit": 20,
+      "timestamp": "2026-11-11T12:44:39.525Z"
+    }
+  ],
+  "bankAccounts": [],
+  "upiAccounts": [],
+  "depositRequests": [],
+  "withdrawalRequests": [],
+  "notifications": [
+    {
+      "id": "1794400836936",
+      "title": "Alert",
+      "message": "Must super announcement",
+      "createdAt": "2026-11-11T12:40:36.936Z"
+    }
+  ],
+  "currentBankIndex": 0
+}

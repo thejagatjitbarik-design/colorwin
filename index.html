@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ColorWin - Colour Prediction</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="user.css">
+</head>
+<body>
+    <!-- ═══ AUTH OVERLAY ═══ -->
+    <div id="auth-overlay" class="overlay">
+        <div class="auth-box">
+            <div class="auth-logo">🎯 ColorWin</div>
+            <p class="auth-sub">Colour Prediction Game</p>
+            <div id="auth-error" class="auth-error hidden"></div>
+            <form id="auth-form">
+                <input type="text" id="auth-username" placeholder="Username" required autocomplete="username">
+                <input type="password" id="auth-password" placeholder="Password" required autocomplete="current-password">
+                <div id="referral-field" class="hidden">
+                    <input type="text" id="auth-referral" placeholder="Referral Code (optional)">
+                </div>
+                <button type="submit" id="auth-btn" class="btn-primary">Login</button>
+            </form>
+            <p class="auth-toggle">Don't have an account? <a href="#" id="toggle-auth">Register</a></p>
+        </div>
+    </div>
+
+    <!-- ═══ SUSPENDED OVERLAY ═══ -->
+    <div id="suspended-overlay" class="overlay hidden">
+        <div class="auth-box">
+            <div class="suspended-icon">🚫</div>
+            <h2>Account Suspended</h2>
+            <p>Your account has been suspended due to inactivity (15+ days). Please contact support to reactivate.</p>
+            <div class="support-links-mini">
+                <a href="https://wa.me/918260104294" target="_blank" class="btn-whatsapp">📱 WhatsApp</a>
+                <a href="mailto:blackcyberp@gmail.com" class="btn-email">✉️ Email Support</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ NOTIFICATION MODAL ═══ -->
+    <div id="notif-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🔔 Notifications</h3>
+                <button class="modal-close" onclick="document.getElementById('notif-modal').classList.add('hidden')">&times;</button>
+            </div>
+            <div id="notif-list" class="notif-list">
+                <div class="empty-state">No notifications yet</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ RESULT POPUP ═══ -->
+    <div id="result-popup" class="result-popup hidden">
+        <div class="result-popup-inner">
+            <div id="result-icon" class="result-icon"></div>
+            <div id="result-text" class="result-text"></div>
+            <div id="result-amount" class="result-amount"></div>
+        </div>
+    </div>
+
+    <!-- ═══ TOP HEADER ═══ -->
+    <header class="top-header">
+        <div class="brand">🎯 ColorWin</div>
+        <div class="balance-pill" id="balance-pill">₹ <span id="balance-amount">0</span></div>
+        <div class="header-right">
+            <button class="notif-bell" id="notif-bell" onclick="toggleNotifModal()">
+                🔔
+                <span class="notif-badge hidden" id="notif-badge">0</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- ═══ MAIN CONTENT ═══ -->
+    <main class="main-content">
+        <!-- GAME PAGE -->
+        <section id="page-game" class="page active">
+            <div class="timer-section">
+                <div class="timer-circle" id="timer-circle">
+                    <div class="timer-inner">
+                        <div class="timer-phase" id="timer-phase">Waiting...</div>
+                        <div class="timer-display" id="timer-display">02:00</div>
+                        <div class="timer-round" id="timer-round">Round #--</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="results-strip">
+                <div class="strip-label">Recent</div>
+                <div class="strip-dots" id="results-strip"></div>
+            </div>
+
+            <div class="bet-section" id="bet-section">
+                <div class="color-buttons">
+                    <button class="color-btn red" data-color="red" onclick="selectColor('red')">
+                        <span class="color-name">Red</span>
+                        <span class="color-multi">2x</span>
+                    </button>
+                    <button class="color-btn violet" data-color="violet" onclick="selectColor('violet')">
+                        <span class="color-name">Violet</span>
+                        <span class="color-multi">2x</span>
+                    </button>
+                    <button class="color-btn green" data-color="green" onclick="selectColor('green')">
+                        <span class="color-name">Green</span>
+                        <span class="color-multi">2x</span>
+                    </button>
+                </div>
+                <div class="bet-controls">
+                    <div class="amount-chips">
+                        <button class="chip" onclick="setAmount(10)">₹10</button>
+                        <button class="chip" onclick="setAmount(50)">₹50</button>
+                        <button class="chip" onclick="setAmount(100)">₹100</button>
+                        <button class="chip" onclick="setAmount(500)">₹500</button>
+                    </div>
+                    <div class="bet-input-row">
+                        <input type="number" id="bet-amount" placeholder="Enter amount" min="10">
+                        <button class="btn-primary btn-bet" id="place-bet-btn" onclick="placeBet()">Place Bet</button>
+                    </div>
+                </div>
+                <div id="bet-status" class="bet-status hidden"></div>
+            </div>
+        </section>
+
+        <!-- WALLET PAGE -->
+        <section id="page-wallet" class="page hidden">
+            <div class="wallet-tabs">
+                <button class="w-tab active" onclick="showWalletTab('deposit')">Deposit</button>
+                <button class="w-tab" onclick="showWalletTab('withdraw')">Withdraw</button>
+                <button class="w-tab" onclick="showWalletTab('bank')">Bank / UPI</button>
+            </div>
+
+            <!-- Deposit Tab -->
+            <div id="wallet-deposit" class="wallet-panel">
+                <h3>💳 Deposit Funds</h3>
+                <div id="deposit-bank-info" class="deposit-info">
+                    <p class="loading-text">Loading payment details...</p>
+                </div>
+                <div class="form-group">
+                    <label>Amount (min ₹100)</label>
+                    <input type="number" id="deposit-amount" min="100" placeholder="Enter amount">
+                </div>
+                <div class="form-group">
+                    <label>UTR / Transaction ID</label>
+                    <input type="text" id="deposit-txn" placeholder="Enter transaction ID">
+                </div>
+                <button class="btn-primary" onclick="submitDeposit()">Submit Deposit</button>
+                <div class="notice">⏰ Deposits are verified within 6 hours</div>
+                <div id="deposit-msg" class="msg hidden"></div>
+            </div>
+
+            <!-- Withdraw Tab -->
+            <div id="wallet-withdraw" class="wallet-panel hidden">
+                <h3>💸 Withdraw Funds</h3>
+                <div class="form-group">
+                    <label>Amount (min ₹300)</label>
+                    <input type="number" id="withdraw-amount" min="300" placeholder="Enter amount" oninput="updateFeePreview()">
+                </div>
+                <div id="fee-preview" class="fee-preview hidden">
+                    <div class="fee-row"><span>Fee (0.5%)</span><span id="fee-amount">₹0</span></div>
+                    <div class="fee-row net"><span>You receive</span><span id="net-amount">₹0</span></div>
+                </div>
+                <div id="eligibility-check" class="eligibility-box">
+                    <h4>Withdrawal Requirements</h4>
+                    <div id="eligibility-list"></div>
+                </div>
+                <button class="btn-primary" id="withdraw-btn" onclick="submitWithdraw()">Withdraw</button>
+                <div class="notice">⏰ Withdrawals processed within 12 hours</div>
+                <div id="withdraw-msg" class="msg hidden"></div>
+            </div>
+
+            <!-- Bank Tab -->
+            <div id="wallet-bank" class="wallet-panel hidden">
+                <h3>🏦 Bank Account</h3>
+                <div id="saved-bank" class="saved-info hidden">
+                    <div class="saved-card">
+                        <div class="saved-label">Saved Bank Account</div>
+                        <div id="saved-bank-details"></div>
+                        <button class="btn-danger-sm" onclick="removeBank()">🗑 Remove Bank</button>
+                    </div>
+                </div>
+                <div id="bank-form-section">
+                    <div class="form-group">
+                        <label>Account Holder Name</label>
+                        <input type="text" id="bank-name" placeholder="Full name">
+                    </div>
+                    <div class="form-group">
+                        <label>Account Number</label>
+                        <input type="text" id="bank-number" placeholder="Account number">
+                    </div>
+                    <div class="form-group">
+                        <label>IFSC Code</label>
+                        <input type="text" id="bank-ifsc" placeholder="IFSC code">
+                    </div>
+                    <button class="btn-primary" onclick="saveBank()">Save Bank Account</button>
+                </div>
+
+                <hr class="divider">
+
+                <h3>📲 UPI ID</h3>
+                <div id="saved-upi" class="saved-info hidden">
+                    <div class="saved-card">
+                        <div class="saved-label">Saved UPI ID</div>
+                        <div id="saved-upi-details"></div>
+                        <button class="btn-danger-sm" onclick="removeUpi()">🗑 Remove UPI</button>
+                    </div>
+                </div>
+                <div id="upi-form-section">
+                    <div class="form-group">
+                        <label>UPI ID</label>
+                        <input type="text" id="upi-id-input" placeholder="yourname@upi">
+                    </div>
+                    <button class="btn-primary" onclick="saveUpi()">Save UPI ID</button>
+                </div>
+                <div id="bank-msg" class="msg hidden"></div>
+            </div>
+        </section>
+
+        <!-- HISTORY PAGE -->
+        <section id="page-history" class="page hidden">
+            <h3>📜 Bet History</h3>
+            <div id="history-list" class="history-list">
+                <div class="empty-state">No history yet</div>
+            </div>
+        </section>
+
+        <!-- SUPPORT PAGE -->
+        <section id="page-support" class="page hidden">
+            <div class="support-card">
+                <div class="support-header">
+                    <div class="support-logo">🎯</div>
+                    <h2>ColorWin Support</h2>
+                    <p>We're here to help 24/7</p>
+                </div>
+                <div class="support-channels">
+                    <a href="https://wa.me/918260104294" target="_blank" class="support-item whatsapp">
+                        <div class="support-icon">📱</div>
+                        <div class="support-detail">
+                            <div class="support-label">WhatsApp Support</div>
+                            <div class="support-value">+91 82601 04294</div>
+                        </div>
+                        <div class="support-arrow">→</div>
+                    </a>
+                    <a href="https://wa.me/918144717930" target="_blank" class="support-item whatsapp">
+                        <div class="support-icon">📱</div>
+                        <div class="support-detail">
+                            <div class="support-label">WhatsApp Support 2</div>
+                            <div class="support-value">+91 81447 17930</div>
+                        </div>
+                        <div class="support-arrow">→</div>
+                    </a>
+                    <a href="mailto:blackcyberp@gmail.com" class="support-item email">
+                        <div class="support-icon">✉️</div>
+                        <div class="support-detail">
+                            <div class="support-label">Email Support</div>
+                            <div class="support-value">blackcyberp@gmail.com</div>
+                        </div>
+                        <div class="support-arrow">→</div>
+                    </a>
+                </div>
+                <div class="support-footer">
+                    <p>💡 Average response time: Under 30 minutes</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- PROFILE PAGE -->
+        <section id="page-profile" class="page hidden">
+            <div class="profile-card">
+                <div class="profile-avatar" id="profile-avatar">U</div>
+                <h2 id="profile-username">Username</h2>
+                <div class="profile-stats">
+                    <div class="p-stat"><span class="p-val" id="p-bets">0</span><span class="p-label">Bets</span></div>
+                    <div class="p-stat"><span class="p-val" id="p-won">₹0</span><span class="p-label">Won</span></div>
+                    <div class="p-stat"><span class="p-val" id="p-deposited">₹0</span><span class="p-label">Deposited</span></div>
+                </div>
+            </div>
+
+            <div class="referral-card">
+                <h3>🔗 Your Referral</h3>
+                <div class="ref-code-box">
+                    <span id="ref-code">---</span>
+                    <button class="btn-copy" onclick="copyReferral()">📋 Copy</button>
+                </div>
+                <div class="ref-link-box">
+                    <input type="text" id="ref-link" readonly>
+                    <button class="btn-copy" onclick="copyRefLink()">📋</button>
+                </div>
+                <div class="ref-stats">
+                    <span>Total: <strong id="ref-total">0</strong></span>
+                    <span>Active: <strong id="ref-active">0</strong></span>
+                </div>
+                <div id="ref-list" class="ref-list"></div>
+            </div>
+
+            <button class="btn-logout" onclick="logout()">🚪 Logout</button>
+        </section>
+    </main>
+
+    <!-- ═══ BOTTOM NAV ═══ -->
+    <nav class="bottom-nav">
+        <button class="nav-btn active" data-page="game" onclick="showPage('game')">
+            <span class="nav-icon">🎮</span>
+            <span class="nav-label">Game</span>
+        </button>
+        <button class="nav-btn" data-page="wallet" onclick="showPage('wallet')">
+            <span class="nav-icon">💰</span>
+            <span class="nav-label">Wallet</span>
+        </button>
+        <button class="nav-btn" data-page="history" onclick="showPage('history')">
+            <span class="nav-icon">📜</span>
+            <span class="nav-label">History</span>
+        </button>
+        <button class="nav-btn" data-page="support" onclick="showPage('support')">
+            <span class="nav-icon">💬</span>
+            <span class="nav-label">Support</span>
+        </button>
+        <button class="nav-btn" data-page="profile" onclick="showPage('profile')">
+            <span class="nav-icon">👤</span>
+            <span class="nav-label">Profile</span>
+        </button>
+    </nav>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="user.js"></script>
+</body>
+</html>

@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ColorWin Admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+    <!-- ═══ LOGIN ═══ -->
+    <div id="admin-login" class="login-overlay">
+        <div class="login-box">
+            <h2>🛡️ Admin Panel</h2>
+            <div id="login-error" class="login-error hidden"></div>
+            <form id="login-form">
+                <input type="text" id="login-user" placeholder="Username" required>
+                <input type="password" id="login-pass" placeholder="Password" required>
+                <button type="submit" class="btn-primary">Login</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ═══ ADMIN PANEL ═══ -->
+    <div id="admin-panel" class="admin-panel hidden">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <span class="sidebar-brand">🛡️ Admin</span>
+                <button class="sidebar-close" onclick="toggleSidebar()">✕</button>
+            </div>
+            <nav class="sidebar-nav">
+                <button class="s-btn active" id="s-overview" onclick="showPage('overview')">📊 Overview</button>
+                <button class="s-btn" id="s-game" onclick="showPage('game')">🎮 Game Control</button>
+                <button class="s-btn" id="s-users" onclick="showPage('users')">👥 Users</button>
+                <button class="s-btn" id="s-deposits" onclick="showPage('deposits')">💳 Deposits</button>
+                <button class="s-btn" id="s-withdrawals" onclick="showPage('withdrawals')">💸 Withdrawals</button>
+                <button class="s-btn" id="s-referrals" onclick="showPage('referrals')">🔗 Referrals</button>
+                <button class="s-btn" id="s-eligibility" onclick="showPage('eligibility')">✅ Eligibility</button>
+                <button class="s-btn" id="s-banks" onclick="showPage('banks')">🏦 Banks & UPI</button>
+                <button class="s-btn" id="s-notifications" onclick="showPage('notifications')">🔔 Notifications</button>
+                <button class="s-btn" id="s-history" onclick="showPage('history')">📜 Round History</button>
+            </nav>
+        </aside>
+
+        <!-- Top Bar -->
+        <header class="admin-header">
+            <button class="hamburger" onclick="toggleSidebar()">☰</button>
+            <span class="admin-title" id="page-title">📊 Overview</span>
+            <button class="btn-logout-sm" onclick="adminLogout()">Logout</button>
+        </header>
+
+        <!-- Content -->
+        <div class="admin-content">
+            <!-- OVERVIEW -->
+            <section id="page-overview" class="page active">
+                <div class="stats-grid" id="stats-grid">
+                    <div class="stat-card"><div class="stat-val" id="st-users">0</div><div class="stat-label">Total Users</div></div>
+                    <div class="stat-card"><div class="stat-val" id="st-rounds">0</div><div class="stat-label">Total Rounds</div></div>
+                    <div class="stat-card"><div class="stat-val" id="st-bet">₹0</div><div class="stat-label">Total Bet</div></div>
+                    <div class="stat-card"><div class="stat-val" id="st-payout">₹0</div><div class="stat-label">Total Payout</div></div>
+                    <div class="stat-card profit"><div class="stat-val" id="st-profit">₹0</div><div class="stat-label">Profit</div></div>
+                    <div class="stat-card warn" id="st-pend-dep-card"><div class="stat-val" id="st-pend-dep">0</div><div class="stat-label">Pending Deposits</div></div>
+                    <div class="stat-card warn" id="st-pend-wd-card"><div class="stat-val" id="st-pend-wd">0</div><div class="stat-label">Pending Withdrawals</div></div>
+                    <div class="stat-card danger" id="st-dup-card"><div class="stat-val" id="st-dup">0</div><div class="stat-label">⚠️ Duplicate Deposits</div></div>
+                    <div class="stat-card danger" id="st-susp-card"><div class="stat-val" id="st-susp">0</div><div class="stat-label">Suspended Users</div></div>
+                </div>
+            </section>
+
+            <!-- GAME CONTROL -->
+            <section id="page-game" class="page hidden">
+                <div class="game-grid">
+                    <div class="game-card">
+                        <h3>⏱️ Round Timer</h3>
+                        <div class="game-timer">
+                            <div class="game-phase" id="game-phase">--</div>
+                            <div class="game-time" id="game-time">02:00</div>
+                            <div class="game-round" id="game-round">Round #--</div>
+                        </div>
+                        <div class="game-actions">
+                            <button class="btn-toggle" id="toggle-bet-btn" onclick="toggleBetting()">🔒 Lock Bets</button>
+                        </div>
+                    </div>
+                    <div class="game-card">
+                        <h3>📊 Live Bets</h3>
+                        <div class="bet-summary">
+                            <div class="bs-row red"><span class="bs-color">🔴 Red</span><span class="bs-count" id="bs-red-count">0</span><span class="bs-total" id="bs-red-total">₹0</span></div>
+                            <div class="bs-row green"><span class="bs-color">🟢 Green</span><span class="bs-count" id="bs-green-count">0</span><span class="bs-total" id="bs-green-total">₹0</span></div>
+                            <div class="bs-row violet"><span class="bs-color">🟣 Violet</span><span class="bs-count" id="bs-violet-count">0</span><span class="bs-total" id="bs-violet-total">₹0</span></div>
+                        </div>
+                        <div class="bs-betters">Total Betters: <strong id="bs-total-betters">0</strong></div>
+                    </div>
+                    <div class="game-card full-width">
+                        <h3>🎯 Set Result</h3>
+                        <div class="result-buttons">
+                            <button class="result-btn red" onclick="setResult('red')">RED</button>
+                            <button class="result-btn green" onclick="setResult('green')">GREEN</button>
+                            <button class="result-btn violet" onclick="setResult('violet')">VIOLET</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- USERS -->
+            <section id="page-users" class="page hidden">
+                <div class="section-card">
+                    <h3>➕ Add New User</h3>
+                    <div class="inline-form">
+                        <input type="text" id="new-user-name" placeholder="Username">
+                        <input type="password" id="new-user-pass" placeholder="Password">
+                        <input type="number" id="new-user-bal" placeholder="Balance" value="50">
+                        <button class="btn-primary btn-sm" onclick="addUser()">Add User</button>
+                    </div>
+                    <div id="add-user-msg" class="msg hidden"></div>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>User</th><th>Balance</th><th>Bet/Won</th><th>Inactive</th><th>Status</th><th>Bank/UPI</th><th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-tbody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- DEPOSITS -->
+            <section id="page-deposits" class="page hidden">
+                <div id="dep-dup-alert" class="dup-alert hidden">⚠️ <strong id="dep-dup-count">0</strong> duplicate transaction(s) detected!</div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>User</th><th>Amount</th><th>Txn ID</th><th>Status</th><th>Duplicate?</th><th>Date</th><th>Actions</th></tr>
+                        </thead>
+                        <tbody id="deposits-tbody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- WITHDRAWALS -->
+            <section id="page-withdrawals" class="page hidden">
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>User</th><th>Amount</th><th>Fee</th><th>Net</th><th>Bank/UPI</th><th>Status</th><th>Date</th><th>Actions</th></tr>
+                        </thead>
+                        <tbody id="withdrawals-tbody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- REFERRALS -->
+            <section id="page-referrals" class="page hidden">
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>User</th><th>Referral Code</th><th>Total</th><th>Active</th><th>Referred Users</th></tr>
+                        </thead>
+                        <tbody id="referrals-tbody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ELIGIBILITY -->
+            <section id="page-eligibility" class="page hidden">
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>User</th><th>Balance</th><th>Deposited</th><th>Referrals</th><th>Active Ref</th><th>Eligible</th><th>Reasons</th></tr>
+                        </thead>
+                        <tbody id="eligibility-tbody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- BANKS & UPI -->
+            <section id="page-banks" class="page hidden">
+                <div class="section-card">
+                    <h3>🏦 Add Bank Account</h3>
+                    <div class="inline-form">
+                        <input type="text" id="ab-name" placeholder="Account Name">
+                        <input type="text" id="ab-number" placeholder="Account Number">
+                        <input type="text" id="ab-ifsc" placeholder="IFSC Code">
+                        <input type="text" id="ab-upi" placeholder="UPI (optional)">
+                        <button class="btn-primary btn-sm" onclick="addBank()">Add Bank</button>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Name</th><th>Account</th><th>IFSC</th><th>UPI</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody id="banks-tbody"></tbody>
+                    </table>
+                </div>
+
+                <div class="section-card" style="margin-top:20px">
+                    <h3>📲 Add UPI Account</h3>
+                    <div class="inline-form">
+                        <input type="text" id="au-name" placeholder="Display Name">
+                        <input type="text" id="au-upi" placeholder="UPI ID">
+                        <button class="btn-primary btn-sm" onclick="addUpi()">Add UPI</button>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Name</th><th>UPI ID</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody id="upis-tbody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- NOTIFICATIONS -->
+            <section id="page-notifications" class="page hidden">
+                <div class="section-card">
+                    <h3>📢 Send Notification</h3>
+                    <div class="form-group"><input type="text" id="notif-title" placeholder="Notification Title"></div>
+                    <div class="form-group"><textarea id="notif-message" placeholder="Message to all users" rows="3"></textarea></div>
+                    <button class="btn-primary" onclick="sendNotification()">📢 Send to All Users</button>
+                    <div id="notif-msg" class="msg hidden"></div>
+                </div>
+                <h3 style="margin:20px 0 10px">📋 Sent Notifications</h3>
+                <div id="notif-list-admin" class="notif-admin-list"></div>
+            </section>
+
+            <!-- ROUND HISTORY -->
+            <section id="page-history" class="page hidden">
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Round</th><th>Result</th><th>Total Bet</th><th>Payout</th><th>Profit</th><th>Date</th></tr>
+                        </thead>
+                        <tbody id="history-tbody"></tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="admin.js"></script>
+</body>
+</html>
