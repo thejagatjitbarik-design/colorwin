@@ -6,6 +6,8 @@ let currentUser = null;
 let selectedColor = null;
 let isRegister = false;
 let notifCount = 0;
+let currentScreenshotBase64 = null;
+let currentAssignedAccountName = 'Main Deposit Gateway';
 
 // ─── Init ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -13,55 +15,92 @@ document.addEventListener('DOMContentLoaded', () => {
     const params = new URLSearchParams(window.location.search);
     const refCode = params.get('ref');
     if (refCode) {
-        document.getElementById('auth-referral').value = refCode;
+        const refInput = document.getElementById('auth-referral');
+        if (refInput) refInput.value = refCode;
     }
 
     // Auth toggle
-    document.getElementById('toggle-auth').addEventListener('click', (e) => {
-        e.preventDefault();
-        isRegister = !isRegister;
-        document.getElementById('auth-btn').textContent = isRegister ? 'Register' : 'Login';
-        document.getElementById('referral-field').classList.toggle('hidden', !isRegister);
-        document.getElementById('toggle-auth').textContent = isRegister ? 'Login' : 'Register';
-        document.querySelector('.auth-toggle').firstChild.textContent = isRegister ? 'Already have an account? ' : "Don't have an account? ";
-    });
+    const toggleAuth = document.getElementById('toggle-auth');
+    if (toggleAuth) {
+        toggleAuth.addEventListener('click', (e) => {
+            e.preventDefault();
+            isRegister = !isRegister;
+            document.getElementById('auth-btn').textContent = isRegister ? 'Register & Accept Terms' : 'Login';
+            document.getElementById('register-extras').classList.toggle('hidden', !isRegister);
+            document.getElementById('forgot-link-box').classList.toggle('hidden', isRegister);
+            toggleAuth.textContent = isRegister ? 'Login' : 'Register';
+            document.querySelector('.auth-toggle').firstChild.textContent = isRegister ? 'Already have an account? ' : "Don't have an account? ";
+        });
+    }
 
-    // Auth form
-    document.getElementById('auth-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const username = document.getElementById('auth-username').value.trim();
-        const password = document.getElementById('auth-password').value;
-        const referralCode = document.getElementById('auth-referral').value.trim();
-        const errEl = document.getElementById('auth-error');
-        errEl.classList.add('hidden');
+    // Terms & Conditions link
+    const tcLink = document.getElementById('open-tc-link');
+    if (tcLink) {
+        tcLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            document.getElementById('tc-modal').classList.remove('hidden');
+        });
+    }
 
-        try {
-            const endpoint = isRegister ? '/api/register' : '/api/login';
-            const body = isRegister ? { username, password, referralCode } : { username, password };
-            const res = await fetch(API + endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
-            });
-            const data = await res.json();
-            if (!res.ok) {
-                if (data.suspended) {
-                    document.getElementById('auth-overlay').classList.add('hidden');
-                    document.getElementById('suspended-overlay').classList.remove('hidden');
+    // Forgot password link
+    const forgotLink = document.getElementById('open-forgot-link');
+    if (forgotLink) {
+        forgotLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            document.getElementById('forgot-modal').classList.remove('hidden');
+        });
+    }
+
+    // Auth form submit
+    const authForm = document.getElementById('auth-form');
+    if (authForm) {
+        authForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('auth-username').value.trim();
+            const password = document.getElementById('auth-password').value;
+            const errEl = document.getElementById('auth-error');
+            errEl.classList.add('hidden');
+
+            if (isRegister) {
+                const tcCheckbox = document.getElementById('auth-tc');
+                if (!tcCheckbox || !tcCheckbox.checked) {
+                    errEl.textContent = 'Please accept the Terms & Conditions before registering.';
+                    errEl.classList.remove('hidden');
                     return;
                 }
-                throw new Error(data.error || 'Failed');
             }
-            token = data.token;
-            localStorage.setItem('cw_token', token);
-            currentUser = data.user;
-            document.getElementById('auth-overlay').classList.add('hidden');
-            initApp();
-        } catch (err) {
-            errEl.textContent = err.message;
-            errEl.classList.remove('hidden');
-        }
-    });
+
+            const phone = document.getElementById('auth-phone')?.value.trim() || '';
+            const referralCode = document.getElementById('auth-referral')?.value.trim() || '';
+
+            try {
+                const endpoint = isRegister ? '/api/register' : '/api/login';
+                const body = isRegister ? { username, password, referralCode, phone } : { username, password };
+                const res = await fetch(API + endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    if (data.suspended) {
+                        document.getElementById('auth-overlay').classList.add('hidden');
+                        document.getElementById('suspended-overlay').classList.remove('hidden');
+                        return;
+                    }
+                    throw new Error(data.error || 'Authentication failed');
+                }
+                token = data.token;
+                localStorage.setItem('cw_token', token);
+                currentUser = data.user;
+                document.getElementById('auth-overlay').classList.add('hidden');
+                initApp();
+            } catch (err) {
+                errEl.textContent = err.message;
+                errEl.classList.remove('hidden');
+            }
+        });
+    }
 
     if (token) {
         document.getElementById('auth-overlay').classList.add('hidden');
@@ -87,6 +126,14 @@ function authHeaders() {
 async function loadProfile() {
     try {
         const res = await fetch(API + '/api/me', { headers: authHeaders() });
+        if (res.status === 401) {
+            const d = await res.json();
+            if (d.sessionReplaced) {
+                showSessionReplaced();
+                return;
+            }
+            logout(); return;
+        }
         if (res.status === 403) {
             const d = await res.json();
             if (d.suspended) {
@@ -105,13 +152,20 @@ function updateUI() {
     document.getElementById('balance-amount').textContent = Math.floor(currentUser.balance);
     document.getElementById('profile-username').textContent = currentUser.username;
     document.getElementById('profile-avatar').textContent = currentUser.username.charAt(0).toUpperCase();
+
+    const phoneEl = document.getElementById('profile-phone');
+    if (phoneEl) phoneEl.textContent = currentUser.phone ? `Phone: ${currentUser.phone}` : 'Phone: Not set';
+
     document.getElementById('p-bets').textContent = currentUser.totalBetsPlaced || 0;
     document.getElementById('p-won').textContent = '₹' + (currentUser.totalWon || 0);
-    document.getElementById('p-deposited').textContent = '₹' + (currentUser.totalDeposited || 0);
+
+    const commEl = document.getElementById('p-commission');
+    if (commEl) commEl.textContent = '₹' + (currentUser.totalCommissionEarned || 0);
+
     document.getElementById('ref-code').textContent = currentUser.referralCode || '---';
     document.getElementById('ref-link').value = `${window.location.origin}/?ref=${currentUser.referralCode || ''}`;
 
-    // Bank/UPI display
+    // Saved Bank / UPI Details
     if (currentUser.bankAccount) {
         document.getElementById('saved-bank').classList.remove('hidden');
         document.getElementById('bank-form-section').classList.add('hidden');
@@ -137,19 +191,24 @@ function updateUI() {
         document.getElementById('upi-form-section').classList.remove('hidden');
     }
 
-    // Eligibility
+    // Withdrawal Eligibility
     if (currentUser.withdrawalEligibility) {
         const elig = currentUser.withdrawalEligibility;
         const list = document.getElementById('eligibility-list');
         list.innerHTML = '';
-        const checks = [
-            { label: `Balance >= ₹300`, ok: elig.balance >= 300 },
-            { label: `Deposits >= ₹200 (₹${elig.totalDeposited})`, ok: elig.totalDeposited >= 200 },
-            { label: `3+ active referrals (${elig.activeReferrals})`, ok: elig.activeReferrals >= 3 }
-        ];
-        checks.forEach(c => {
-            list.innerHTML += `<div class="elig-item"><span class="elig-icon">${c.ok ? '✅' : '❌'}</span><span>${c.label}</span></div>`;
-        });
+
+        if (elig.isVip) {
+            list.innerHTML = `<div class="elig-item"><span class="elig-icon">⭐</span><span style="color:var(--gold);font-weight:700">VIP Fast Pass Active (Restrictions Bypassed!)</span></div>`;
+        } else {
+            const checks = [
+                { label: `Balance ≥ ₹300`, ok: elig.balance >= 300 },
+                { label: `Deposits ≥ ₹200 (₹${elig.totalDeposited})`, ok: elig.totalDeposited >= 200 },
+                { label: `3+ active referrals (${elig.activeReferrals})`, ok: elig.activeReferrals >= 3 }
+            ];
+            checks.forEach(c => {
+                list.innerHTML += `<div class="elig-item"><span class="elig-icon">${c.ok ? '✅' : '❌'}</span><span>${c.label}</span></div>`;
+            });
+        }
         document.getElementById('withdraw-btn').disabled = !elig.eligible;
     }
 }
@@ -159,19 +218,15 @@ function connectSocket() {
     socket = io();
     socket.emit('join', { token });
 
-    socket.on('game:state', (state) => {
-        updateGameState(state);
-    });
+    socket.on('game:state', (state) => updateGameState(state));
 
-    socket.on('round:new', (data) => {
+    socket.on('round:new', () => {
         selectedColor = null;
         document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
         hideBetStatus();
     });
 
-    socket.on('timer:tick', (data) => {
-        updateTimer(data.timeLeft);
-    });
+    socket.on('timer:tick', (data) => updateTimer(data.timeLeft));
 
     socket.on('timer:expired', () => {
         document.getElementById('timer-phase').textContent = 'Betting Closed';
@@ -191,9 +246,15 @@ function connectSocket() {
         showResultPopup(data);
     });
 
-    socket.on('round:result', (data) => {
-        addResultDot(data.result);
+    socket.on('commission:earned', (data) => {
+        currentUser.balance = data.newBalance;
+        currentUser.totalCommissionEarned = (currentUser.totalCommissionEarned || 0) + data.commission;
+        document.getElementById('balance-amount').textContent = Math.floor(data.newBalance);
+        const commEl = document.getElementById('p-commission');
+        if (commEl) commEl.textContent = '₹' + currentUser.totalCommissionEarned.toFixed(2);
     });
+
+    socket.on('round:result', (data) => addResultDot(data.result));
 
     socket.on('deposit:approved', (data) => {
         currentUser.balance = data.newBalance;
@@ -212,12 +273,35 @@ function connectSocket() {
             addNotifToList(notif);
         }
     });
+
+    socket.on('session:replaced', () => showSessionReplaced());
 }
 
-// ─── Game State ────────────────────────────────────────────────────────────────
+function showSessionReplaced() {
+    localStorage.removeItem('cw_token');
+    token = null;
+    if (socket) socket.disconnect();
+    document.getElementById('session-overlay').classList.remove('hidden');
+}
+
+// ─── Game State & Maintenance UI ──────────────────────────────────────────────
 function updateGameState(state) {
     updateTimer(state.timeLeft);
     const phase = document.getElementById('timer-phase');
+    const maintenanceBanner = document.getElementById('maintenance-banner');
+    const betSection = document.getElementById('bet-section');
+
+    if (state.maintenanceMode) {
+        if (maintenanceBanner) maintenanceBanner.classList.remove('hidden');
+        if (betSection) betSection.style.display = 'none';
+        phase.textContent = '🛠️ Maintenance';
+        setBettingEnabled(false);
+        return;
+    } else {
+        if (maintenanceBanner) maintenanceBanner.classList.add('hidden');
+        if (betSection) betSection.style.display = 'block';
+    }
+
     if (state.phase === 'betting' && state.bettingOpen) {
         phase.textContent = '🟢 Betting Open';
         setBettingEnabled(true);
@@ -225,7 +309,7 @@ function updateGameState(state) {
         phase.textContent = '🔒 Bets Locked';
         setBettingEnabled(false);
     } else if (state.phase === 'closed') {
-        phase.textContent = '⏳ Waiting for Result';
+        phase.textContent = '⏳ Result Calculating...';
         setBettingEnabled(false);
     } else if (state.phase === 'result') {
         phase.textContent = `Result: ${(state.result || '').toUpperCase()}`;
@@ -244,15 +328,14 @@ function updateTimer(timeLeft) {
     const mins = Math.floor(Math.max(0, timeLeft) / 60);
     const secs = Math.max(0, timeLeft) % 60;
     document.getElementById('timer-display').textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-
-    // Update circle progress
     const pct = (timeLeft / 120) * 100;
     document.getElementById('timer-circle').style.setProperty('--progress', `${pct}%`);
 }
 
 function setBettingEnabled(enabled) {
     document.querySelectorAll('.color-btn').forEach(b => b.disabled = !enabled);
-    document.getElementById('place-bet-btn').disabled = !enabled;
+    const btn = document.getElementById('place-bet-btn');
+    if (btn) btn.disabled = !enabled;
 }
 
 // ─── Betting ───────────────────────────────────────────────────────────────────
@@ -340,16 +423,39 @@ function showWalletTab(tab) {
     event.target.classList.add('active');
 }
 
-// ─── Deposit ───────────────────────────────────────────────────────────────────
+// ─── Deposit Flow & Mandatory Screenshot ───────────────────────────────────────
+function setDepositAmount(val) {
+    document.getElementById('deposit-amount').value = val;
+}
+
+function previewScreenshot(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        currentScreenshotBase64 = e.target.result;
+        const img = document.getElementById('screenshot-preview-img');
+        img.src = currentScreenshotBase64;
+        document.getElementById('screenshot-preview-container').classList.remove('hidden');
+    };
+    reader.readAsDataURL(file);
+}
+
 async function loadDepositBank() {
     try {
         const res = await fetch(API + '/api/deposit-bank', { headers: authHeaders() });
         const data = await res.json();
         const el = document.getElementById('deposit-bank-info');
-        let html = '';
 
+        if (data.depositsPaused) {
+            el.innerHTML = '<div style="color:var(--gold);font-size:0.85rem">⚠️ Deposits are temporarily paused for bank reconciliation. Please check back shortly.</div>';
+            return;
+        }
+
+        let html = '';
         if (data.bank) {
-            html += `<h4>🏦 Bank Transfer</h4>`;
+            currentAssignedAccountName = data.bank.name || 'Bank Account';
+            html += `<h4>🏦 Assigned Bank Account (Session Active)</h4>`;
             html += `<div class="bank-detail"><span class="label">Name</span><span>${data.bank.name || '-'}</span></div>`;
             html += `<div class="bank-detail"><span class="label">Account</span><span>${data.bank.accountNumber || '-'}</span></div>`;
             html += `<div class="bank-detail"><span class="label">IFSC</span><span>${data.bank.ifscCode || '-'}</span></div>`;
@@ -357,41 +463,81 @@ async function loadDepositBank() {
         }
 
         if (data.upis && data.upis.length > 0) {
-            html += `<div class="upi-list"><h4>📲 UPI Payment</h4>`;
+            currentAssignedAccountName = data.upis[0].name || currentAssignedAccountName;
+            html += `<div class="upi-list"><h4>📲 Fast UPI Option</h4>`;
             data.upis.forEach(u => {
-                html += `<div class="upi-item"><div><div style="font-size:0.75rem;color:var(--text-dim)">${u.name}</div><div class="upi-val">${u.upiId}</div></div></div>`;
+                html += `<div class="upi-item"><div><div style="font-size:0.75rem;color:var(--text-dim)">${u.name}</div><div class="upi-val">${u.upiId}</div></div><button class="btn-copy" onclick="navigator.clipboard.writeText('${u.upiId}');alert('UPI ID copied!')">📋 Copy</button></div>`;
             });
             html += `</div>`;
         }
 
         if (!data.bank && (!data.upis || data.upis.length === 0)) {
-            html = '<p class="loading-text">No payment details available. Contact support.</p>';
+            html = '<p class="loading-text">No active deposit accounts right now. Contact support.</p>';
         }
         el.innerHTML = html;
     } catch {
-        document.getElementById('deposit-bank-info').innerHTML = '<p class="loading-text">Failed to load payment details</p>';
+        document.getElementById('deposit-bank-info').innerHTML = '<p class="loading-text">Failed to load deposit account</p>';
     }
 }
 
-async function submitDeposit() {
+function initiateDepositVerification() {
+    const amount = parseInt(document.getElementById('deposit-amount').value);
+    const txn = document.getElementById('deposit-txn').value.trim();
+
+    if (!amount || amount < 200) return showMsg('deposit-msg', 'Minimum deposit is ₹200', 'error');
+    if (!txn) return showMsg('deposit-msg', 'Please enter your 12-digit UTR / Transaction ID', 'error');
+    if (!currentScreenshotBase64) return showMsg('deposit-msg', 'Payment screenshot proof is mandatory', 'error');
+
+    // Populate pre-deposit verify modal
+    document.getElementById('v-amount').textContent = `₹${amount}`;
+    document.getElementById('v-txn').textContent = txn;
+    document.getElementById('v-account').textContent = currentAssignedAccountName;
+    document.getElementById('v-screenshot').src = currentScreenshotBase64;
+    document.getElementById('deposit-verify-modal').classList.remove('hidden');
+}
+
+function closeDepositVerifyModal() {
+    document.getElementById('deposit-verify-modal').classList.add('hidden');
+}
+
+async function executeDepositSubmission() {
     const amount = parseInt(document.getElementById('deposit-amount').value);
     const transactionId = document.getElementById('deposit-txn').value.trim();
-    if (!amount || amount < 100) return showMsg('deposit-msg', 'Minimum deposit ₹100', 'error');
-    if (!transactionId) return showMsg('deposit-msg', 'Enter transaction ID', 'error');
+    const btn = document.getElementById('v-confirm-btn');
+    btn.disabled = true;
+    btn.textContent = 'Submitting...';
 
     try {
         const res = await fetch(API + '/api/deposit', {
-            method: 'POST', headers: authHeaders(),
-            body: JSON.stringify({ amount, transactionId })
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({
+                amount,
+                transactionId,
+                screenshot: currentScreenshotBase64,
+                targetAccountName: currentAssignedAccountName
+            })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
-        let msg = 'Deposit submitted! Processing within 6 hours.';
-        if (data.isDuplicate) msg += ' ⚠️ Duplicate transaction ID detected.';
+
+        closeDepositVerifyModal();
+        let msg = 'Deposit submitted! Verification takes under 6 hours.';
+        if (data.isDuplicate) msg += ' ⚠️ Duplicate UTR detected.';
         showMsg('deposit-msg', msg, 'success');
+
         document.getElementById('deposit-amount').value = '';
         document.getElementById('deposit-txn').value = '';
-    } catch (err) { showMsg('deposit-msg', err.message, 'error'); }
+        document.getElementById('deposit-screenshot-input').value = '';
+        currentScreenshotBase64 = null;
+        document.getElementById('screenshot-preview-container').classList.add('hidden');
+    } catch (err) {
+        closeDepositVerifyModal();
+        showMsg('deposit-msg', err.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '✅ Confirm';
+    }
 }
 
 // ─── Withdraw ──────────────────────────────────────────────────────────────────
@@ -411,7 +557,7 @@ function updateFeePreview() {
 
 async function submitWithdraw() {
     const amount = parseInt(document.getElementById('withdraw-amount').value);
-    if (!amount || amount < 300) return showMsg('withdraw-msg', 'Minimum withdrawal ₹300', 'error');
+    if (!amount || amount < 300) return showMsg('withdraw-msg', 'Minimum withdrawal is ₹300', 'error');
 
     try {
         const res = await fetch(API + '/api/withdraw', {
@@ -424,14 +570,14 @@ async function submitWithdraw() {
             if (data.reasons) msg += ': ' + data.reasons.join(', ');
             throw new Error(msg);
         }
-        showMsg('withdraw-msg', `Withdrawal submitted! Fee: ₹${data.fee}, You'll receive: ₹${data.netAmount}`, 'success');
+        showMsg('withdraw-msg', `Withdrawal submitted! Fee: ₹${data.fee}, Net: ₹${data.netAmount}`, 'success');
         document.getElementById('withdraw-amount').value = '';
         document.getElementById('fee-preview').classList.add('hidden');
         loadProfile();
     } catch (err) { showMsg('withdraw-msg', err.message, 'error'); }
 }
 
-// ─── Bank/UPI ──────────────────────────────────────────────────────────────────
+// ─── Bank & UPI Management ─────────────────────────────────────────────────────
 async function saveBank() {
     const accountName = document.getElementById('bank-name').value.trim();
     const accountNumber = document.getElementById('bank-number').value.trim();
@@ -500,10 +646,7 @@ async function loadHistory() {
         list.innerHTML = '';
 
         rounds.forEach(round => {
-            // Strip dots
             addResultDot(round.result);
-
-            // Find user's bet
             const myBet = (round.bets || []).find(b => b.userId === currentUser?.id);
             if (myBet) {
                 const html = `
@@ -524,7 +667,7 @@ async function loadHistory() {
     } catch {}
 }
 
-// ─── Referrals ─────────────────────────────────────────────────────────────────
+// ─── Referrals & Commission Ledger ─────────────────────────────────────────────
 async function loadReferrals() {
     try {
         const res = await fetch(API + '/api/my-referrals', { headers: authHeaders() });
@@ -532,17 +675,49 @@ async function loadReferrals() {
         document.getElementById('ref-total').textContent = data.totalCount;
         document.getElementById('ref-active').textContent = data.activeCount;
         const list = document.getElementById('ref-list');
+
         if (data.referrals.length === 0) {
             list.innerHTML = '<div class="empty-state" style="padding:10px">No referrals yet. Share your code!</div>';
         } else {
             list.innerHTML = data.referrals.map(r => `
                 <div class="ref-item">
-                    <span>${r.username}</span>
-                    <span class="${r.active ? 'ref-active' : 'ref-inactive'}">${r.active ? '✅ Active' : '❌ Inactive'} (${r.betsPlaced} bets)</span>
+                    <div>
+                        <strong>${r.username}</strong>
+                        <div style="font-size:0.75rem;color:var(--text-dim)">Wagered: ₹${r.totalBet || 0} / ₹300</div>
+                    </div>
+                    <span class="${r.bonusPaid ? 'ref-active' : 'ref-inactive'}">
+                        ${r.bonusPaid ? '✅ ₹50 Unlocked' : '⏳ In Progress'}
+                    </span>
                 </div>
             `).join('');
         }
     } catch {}
+}
+
+// ─── Forgot Password & Modals ──────────────────────────────────────────────────
+function closeTcModal() {
+    document.getElementById('tc-modal').classList.add('hidden');
+}
+
+function closeForgotModal() {
+    document.getElementById('forgot-modal').classList.add('hidden');
+}
+
+async function submitForgotPassword() {
+    const username = document.getElementById('forgot-user').value.trim();
+    const phone = document.getElementById('forgot-phone').value.trim();
+    if (!username) return showMsg('forgot-msg', 'Username is required', 'error');
+
+    try {
+        const res = await fetch(API + '/api/forgot-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, phone })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        showMsg('forgot-msg', data.message, 'success');
+    } catch (err) { showMsg('forgot-msg', err.message, 'error'); }
 }
 
 // ─── Notifications ─────────────────────────────────────────────────────────────

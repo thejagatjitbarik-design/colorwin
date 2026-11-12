@@ -495,3 +495,30 @@ body {
 @media (min-width: 480px) {
     .main-content { max-width: 480px; margin: 0 auto; }
 }
+
+/* ═══ ENHANCEMENTS & MODALS ═══ */
+.tc-container { margin: 10px 0 14px; text-align: left; }
+.tc-label { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--text-dim); cursor: pointer; }
+.tc-label a { color: var(--primary); text-decoration: none; font-weight: 600; }
+.forgot-box { margin-top: 10px; font-size: 0.8rem; }
+.forgot-box a { color: var(--text-dim); text-decoration: none; }
+.forgot-box a:hover { color: var(--primary); text-decoration: underline; }
+.verify-detail-row { display: flex; justify-content: space-between; padding: 7px 0; font-size: 0.85rem; border-bottom: 1px solid var(--card-border); }
+.verify-detail-row:last-of-type { border-bottom: none; }
+.btn-secondary {
+    padding: 12px; background: rgba(255,255,255,0.08);
+    border: 1px solid var(--card-border); border-radius: 10px;
+    color: var(--text); font-size: 0.9rem; font-weight: 600; cursor: pointer;
+}
+.btn-secondary:hover { background: rgba(255,255,255,0.12); }
+.maintenance-box {
+    background: linear-gradient(135deg, rgba(241,196,15,0.15), rgba(230,126,34,0.1));
+    border: 1px solid rgba(241,196,15,0.3);
+    border-radius: 16px; padding: 24px 20px;
+    text-align: center; margin: 16px 0;
+    backdrop-filter: blur(10px);
+}
+.maintenance-box .m-icon { font-size: 2.8rem; margin-bottom: 8px; }
+.maintenance-box h3 { color: var(--gold); font-size: 1.15rem; margin-bottom: 6px; }
+.maintenance-box p { color: var(--text-dim); font-size: 0.85rem; line-height: 1.4; }
+

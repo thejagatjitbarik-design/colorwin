@@ -309,3 +309,44 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
     .inline-form { flex-direction: column; }
     .inline-form input { min-width: unset; }
 }
+
+/* ═══ ADMIN MODALS & ENHANCEMENTS ═══ */
+.admin-modal {
+    position: fixed; inset: 0; z-index: 500;
+    background: rgba(0,0,0,0.75);
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(8px);
+}
+.admin-modal-content {
+    background: var(--bg2); border: 1px solid var(--card-border);
+    border-radius: 16px; width: 90%;
+    animation: fadeIn 0.2s ease-out;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+.admin-modal-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 16px 20px; border-bottom: 1px solid var(--card-border);
+}
+.modal-close {
+    background: none; border: none; color: var(--text);
+    font-size: 1.5rem; cursor: pointer;
+}
+.screenshot-thumb {
+    width: 44px; height: 44px; border-radius: 6px;
+    object-fit: cover; border: 1px solid var(--card-border);
+    cursor: pointer; transition: transform 0.2s;
+}
+.screenshot-thumb:hover { transform: scale(1.15); border-color: var(--primary); }
+.badge-vip {
+    background: linear-gradient(135deg, rgba(241,196,15,0.25), rgba(243,156,18,0.2));
+    color: var(--gold); border: 1px solid rgba(241,196,15,0.4);
+}
+.badge-auto-win {
+    background: rgba(46,204,113,0.25); color: var(--success);
+    border: 1px solid rgba(46,204,113,0.4); font-weight: 700;
+}
+.badge-auto-lose {
+    background: rgba(231,76,60,0.25); color: var(--danger);
+    border: 1px solid rgba(231,76,60,0.4);
+}
+

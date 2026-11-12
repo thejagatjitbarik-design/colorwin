@@ -2,6 +2,8 @@
 const API = '';
 let token = localStorage.getItem('cw_admin_token');
 let socket = null;
+let currentRejection = { type: null, id: null };
+let currentResetTargetUserId = null;
 
 // ─── Init ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -45,7 +47,6 @@ function initAdmin() {
     connectSocket();
     loadStats();
     loadBets();
-    // Auto-refresh stats
     setInterval(() => {
         const activePage = document.querySelector('.page.active');
         if (activePage) {
@@ -65,7 +66,7 @@ function connectSocket() {
     socket.on('round:new', () => loadBets());
     socket.on('timer:tick', (data) => updateGameTimer(data.timeLeft));
     socket.on('timer:expired', () => {
-        document.getElementById('game-phase').textContent = '⏳ Waiting for Result';
+        document.getElementById('game-phase').textContent = '⏳ Result Calculating...';
         document.getElementById('game-time').textContent = '00:00';
     });
     socket.on('bets:updated', (bets) => updateBetSummary(bets));
@@ -93,7 +94,6 @@ function showPage(name) {
     };
     document.getElementById('page-title').textContent = titles[name] || name;
 
-    // Load data for page
     if (name === 'overview') loadStats();
     if (name === 'game') loadBets();
     if (name === 'users') loadUsers();
@@ -105,7 +105,6 @@ function showPage(name) {
     if (name === 'notifications') loadNotifications();
     if (name === 'history') loadRoundHistory();
 
-    // Close sidebar on mobile
     document.getElementById('sidebar').classList.remove('open');
 }
 
@@ -113,24 +112,35 @@ function toggleSidebar() {
     document.getElementById('sidebar').classList.toggle('open');
 }
 
-// ─── Game State ────────────────────────────────────────────────────────────────
+// ─── Game State & Lowest Bet Logic ─────────────────────────────────────────────
 function updateGameUI(state) {
     updateGameTimer(state.timeLeft);
     const phase = document.getElementById('game-phase');
-    const toggleBtn = document.getElementById('toggle-bet-btn');
+    const toggleBetBtn = document.getElementById('toggle-bet-btn');
+    const toggleAutoBtn = document.getElementById('toggle-auto-btn');
 
-    if (state.phase === 'betting' && state.bettingOpen) {
-        phase.textContent = '🟢 Betting Open';
-        toggleBtn.textContent = '🔒 Lock Bets';
-        toggleBtn.classList.remove('locked');
-    } else if (state.phase === 'betting' && !state.bettingOpen) {
-        phase.textContent = '🔒 Bets Locked';
-        toggleBtn.textContent = '🔓 Unlock Bets';
-        toggleBtn.classList.add('locked');
-    } else if (state.phase === 'closed') {
-        phase.textContent = '⏳ Timer Ended — Set Result';
-    } else if (state.phase === 'result') {
-        phase.textContent = `✅ Result: ${(state.result || '').toUpperCase()}`;
+    if (state.maintenanceMode) {
+        phase.textContent = '🛠️ Maintenance Active';
+        toggleBetBtn.textContent = '🟢 Resume Betting';
+        toggleBetBtn.classList.add('locked');
+    } else {
+        toggleBetBtn.textContent = '🛠️ Maintenance Mode';
+        toggleBetBtn.classList.remove('locked');
+
+        if (state.phase === 'betting' && state.bettingOpen) {
+            phase.textContent = '🟢 Betting Open';
+        } else if (state.phase === 'betting' && !state.bettingOpen) {
+            phase.textContent = '🔒 Bets Locked';
+        } else if (state.phase === 'closed') {
+            phase.textContent = '⏳ Result Calculating...';
+        } else if (state.phase === 'result') {
+            phase.textContent = `✅ Result: ${(state.result || '').toUpperCase()}`;
+        }
+    }
+
+    if (toggleAutoBtn) {
+        toggleAutoBtn.textContent = state.autoResultMode ? '🤖 Auto-Result: ON' : '🤖 Auto-Result: OFF';
+        toggleAutoBtn.classList.toggle('locked', !state.autoResultMode);
     }
 
     if (state.roundId) {
@@ -152,9 +162,42 @@ function updateBetSummary(bets) {
     document.getElementById('bs-violet-count').textContent = bets.violet.count;
     document.getElementById('bs-violet-total').textContent = `₹${bets.violet.total}`;
     document.getElementById('bs-total-betters').textContent = bets.totalBetters || 0;
+
+    // Calculate Lowest and Highest
+    const totals = [
+        { color: 'red', total: bets.red.total },
+        { color: 'green', total: bets.green.total },
+        { color: 'violet', total: bets.violet.total }
+    ];
+    totals.sort((a, b) => a.total - b.total);
+
+    const lowestColor = totals[0].color;
+    const highestColor = totals[2].color;
+
+    ['red', 'green', 'violet'].forEach(c => {
+        const badge = document.getElementById(`badge-${c}-status`);
+        if (!badge) return;
+        if (totals[0].total === totals[2].total) {
+            badge.textContent = 'EQUAL';
+            badge.className = 'badge';
+        } else if (c === lowestColor) {
+            badge.textContent = '⭐ LOWEST (AUTO-WIN)';
+            badge.className = 'badge badge-auto-win';
+        } else if (c === highestColor) {
+            badge.textContent = '🚫 HIGHEST (EXCLUDED)';
+            badge.className = 'badge badge-auto-lose';
+        } else {
+            badge.textContent = 'MIDDLE';
+            badge.className = 'badge';
+        }
+    });
+
+    const autoPickEl = document.getElementById('bs-auto-pick');
+    if (autoPickEl) {
+        autoPickEl.textContent = (bets.autoPick || lowestColor).toUpperCase();
+    }
 }
 
-// ─── Game Actions ──────────────────────────────────────────────────────────────
 async function toggleBetting() {
     try {
         const res = await fetch(API + '/api/admin/toggle-betting', { method: 'POST', headers: authHeaders() });
@@ -163,8 +206,16 @@ async function toggleBetting() {
     } catch (err) { alert(err.message); }
 }
 
+async function toggleAutoResult() {
+    try {
+        const res = await fetch(API + '/api/admin/toggle-auto-result', { method: 'POST', headers: authHeaders() });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+    } catch (err) { alert(err.message); }
+}
+
 async function setResult(color) {
-    if (!confirm(`Set result to ${color.toUpperCase()}?`)) return;
+    if (!confirm(`Manually set result to ${color.toUpperCase()}?`)) return;
     try {
         const res = await fetch(API + '/api/admin/result', {
             method: 'POST', headers: authHeaders(),
@@ -198,7 +249,6 @@ async function loadStats() {
         document.getElementById('st-dup').textContent = s.duplicateDeposits;
         document.getElementById('st-susp').textContent = s.suspendedUsers;
 
-        // Highlight danger cards
         document.getElementById('st-dup-card').classList.toggle('hidden', s.duplicateDeposits === 0);
         document.getElementById('st-susp-card').classList.toggle('hidden', s.suspendedUsers === 0);
     } catch {}
@@ -213,15 +263,23 @@ async function loadUsers() {
         tbody.innerHTML = users.map(u => `
             <tr class="${u.suspended ? 'suspended' : ''}">
                 <td><strong>${u.username}</strong></td>
+                <td style="font-size:0.8rem">${u.phone || '-'}</td>
                 <td>₹${u.balance}</td>
                 <td>₹${u.totalBet} / ₹${u.totalWon}</td>
+                <td style="color:var(--success);font-weight:600">₹${u.totalCommissionEarned || 0}</td>
                 <td>${u.daysSinceActive !== null ? u.daysSinceActive + 'd' : '-'}</td>
                 <td><span class="badge ${u.suspended ? 'badge-suspended' : 'badge-active'}">${u.suspended ? 'SUSPENDED' : 'Active'}</span></td>
+                <td>
+                    <button class="btn-action ${u.vipWithdrawal ? 'btn-toggle-active' : ''}" onclick="toggleVip('${u.id}')">
+                        ${u.vipWithdrawal ? '⭐ VIP: ON' : 'VIP: OFF'}
+                    </button>
+                </td>
                 <td style="font-size:0.75rem">${u.bankAccount ? '🏦 ' + (u.bankAccount.accountName || 'Yes') : ''}${u.upiId ? ' 📲 ' + u.upiId : ''}</td>
                 <td>
                     <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
                         <input type="number" class="adjust-input" id="adj-${u.id}" placeholder="±">
                         <button class="btn-action btn-approve" onclick="adjustBalance('${u.id}')">Adjust</button>
+                        <button class="btn-action" style="background:rgba(241,196,15,0.15);color:var(--gold);border:1px solid rgba(241,196,15,0.3)" onclick="openResetPassModal('${u.id}','${u.username}')">🔑 Pass</button>
                         <button class="btn-action" style="background:rgba(108,92,231,0.2);color:var(--primary);border:1px solid rgba(108,92,231,0.3)" onclick="openNotificationForUser('${u.id}','${u.username}')">💬 Message</button>
                         ${u.suspended
                             ? `<button class="btn-action btn-approve" onclick="reactivateUser('${u.id}')">Reactivate</button>`
@@ -238,21 +296,59 @@ async function loadUsers() {
 async function addUser() {
     const username = document.getElementById('new-user-name').value.trim();
     const password = document.getElementById('new-user-pass').value;
+    const phone = document.getElementById('new-user-phone').value.trim();
     const balance = document.getElementById('new-user-bal').value;
     if (!username || !password) return showMsg('add-user-msg', 'Enter username and password', 'error');
 
     try {
         const res = await fetch(API + '/api/admin/users/add', {
             method: 'POST', headers: authHeaders(),
-            body: JSON.stringify({ username, password, balance: Number(balance) || 50 })
+            body: JSON.stringify({ username, password, phone, balance: Number(balance) || 50 })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
         showMsg('add-user-msg', `User "${username}" created!`, 'success');
         document.getElementById('new-user-name').value = '';
         document.getElementById('new-user-pass').value = '';
+        document.getElementById('new-user-phone').value = '';
         loadUsers();
     } catch (err) { showMsg('add-user-msg', err.message, 'error'); }
+}
+
+async function toggleVip(id) {
+    try {
+        const res = await fetch(API + `/api/admin/users/${id}/toggle-vip`, { method: 'POST', headers: authHeaders() });
+        if (!res.ok) throw new Error('Failed');
+        loadUsers();
+    } catch (err) { alert(err.message); }
+}
+
+function openResetPassModal(id, username) {
+    currentResetTargetUserId = id;
+    document.getElementById('reset-target-username').textContent = `@${username}`;
+    document.getElementById('reset-new-pass').value = '';
+    document.getElementById('reset-pass-modal').classList.remove('hidden');
+}
+
+function closeResetPassModal() {
+    document.getElementById('reset-pass-modal').classList.add('hidden');
+}
+
+async function submitPasswordReset() {
+    const newPassword = document.getElementById('reset-new-pass').value.trim();
+    if (!newPassword || newPassword.length < 4) return showMsg('reset-pass-msg', 'Password must be at least 4 characters', 'error');
+
+    try {
+        const res = await fetch(API + `/api/admin/users/${currentResetTargetUserId}/reset-password`, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ newPassword })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        alert(data.message);
+        closeResetPassModal();
+    } catch (err) { showMsg('reset-pass-msg', err.message, 'error'); }
 }
 
 async function deleteUser(id, name) {
@@ -312,16 +408,20 @@ async function loadDeposits() {
 
         document.getElementById('deposits-tbody').innerHTML = deps.map(d => `
             <tr>
-                <td>${d.username}</td>
-                <td>₹${d.amount}</td>
+                <td><strong>${d.username}</strong></td>
+                <td style="font-weight:700">₹${d.amount}</td>
+                <td>
+                    ${d.screenshot ? `<img src="${d.screenshot}" class="screenshot-thumb" onclick="viewScreenshot('${d.screenshot}')" title="Click to view HD proof">` : '<span style="color:var(--text-dim)">No image</span>'}
+                </td>
                 <td style="font-family:monospace;font-size:0.8rem">${d.transactionId || '-'}</td>
+                <td style="font-size:0.8rem;color:var(--primary)">${d.targetAccountName || 'Main'}</td>
                 <td><span class="badge badge-${d.status}">${d.status.toUpperCase()}</span></td>
                 <td>${d.isDuplicate ? '<span class="badge badge-dup">⚠️ DUPLICATE</span>' : '-'}</td>
                 <td style="font-size:0.75rem">${new Date(d.createdAt).toLocaleString()}</td>
                 <td>
                     ${d.status === 'pending' ? `
                         <button class="btn-action btn-approve" onclick="approveDeposit('${d.id}')">✅ Approve</button>
-                        <button class="btn-action btn-reject" onclick="rejectDeposit('${d.id}')">❌ Reject</button>
+                        <button class="btn-action btn-reject" onclick="openRejectionModal('deposit', '${d.id}')">❌ Decline</button>
                     ` : ''}
                 </td>
             </tr>
@@ -336,11 +436,13 @@ async function approveDeposit(id) {
     } catch {}
 }
 
-async function rejectDeposit(id) {
-    try {
-        await fetch(API + `/api/admin/deposits/${id}/reject`, { method: 'POST', headers: authHeaders() });
-        loadDeposits(); loadStats();
-    } catch {}
+function viewScreenshot(src) {
+    document.getElementById('modal-screenshot-img').src = src;
+    document.getElementById('screenshot-modal').classList.remove('hidden');
+}
+
+function closeScreenshotModal() {
+    document.getElementById('screenshot-modal').classList.add('hidden');
 }
 
 // ─── Withdrawals ───────────────────────────────────────────────────────────────
@@ -350,21 +452,23 @@ async function loadWithdrawals() {
         const wds = await res.json();
         document.getElementById('withdrawals-tbody').innerHTML = wds.map(w => {
             const bankInfo = w.bankAccount
-                ? `${w.bankAccount.accountName || ''} - ${w.bankAccount.accountNumber || ''}`
+                ? `${w.bankAccount.accountName || ''} (${w.bankAccount.accountNumber || ''})`
                 : (w.upiId || '-');
+            const isVip = w.eligibilitySnapshot?.isVip;
             return `
             <tr>
-                <td>${w.username}</td>
+                <td><strong>${w.username}</strong></td>
                 <td>₹${w.amount}</td>
                 <td>₹${w.fee || 0}</td>
                 <td style="color:var(--success);font-weight:700">₹${w.netAmount || w.amount}</td>
                 <td style="font-size:0.75rem">${bankInfo}</td>
+                <td>${isVip ? '<span class="badge badge-vip">⭐ VIP Pass</span>' : '<span style="color:var(--text-dim)">Standard</span>'}</td>
                 <td><span class="badge badge-${w.status}">${w.status.toUpperCase()}</span></td>
                 <td style="font-size:0.75rem">${new Date(w.createdAt).toLocaleString()}</td>
                 <td>
                     ${w.status === 'pending' ? `
                         <button class="btn-action btn-approve" onclick="approveWithdrawal('${w.id}')">✅ Approve</button>
-                        <button class="btn-action btn-reject" onclick="rejectWithdrawal('${w.id}')">❌ Reject</button>
+                        <button class="btn-action btn-reject" onclick="openRejectionModal('withdrawal', '${w.id}')">❌ Decline</button>
                     ` : ''}
                 </td>
             </tr>
@@ -379,11 +483,41 @@ async function approveWithdrawal(id) {
     } catch {}
 }
 
-async function rejectWithdrawal(id) {
+// ─── Rejection Modal ───────────────────────────────────────────────────────────
+function openRejectionModal(type, id) {
+    currentRejection = { type, id };
+    document.getElementById('rejection-title').textContent = type === 'deposit' ? '❌ Decline Deposit Request' : '❌ Decline Withdrawal Request';
+    document.getElementById('quick-reason-select').value = '';
+    document.getElementById('rejection-reason-text').value = '';
+    document.getElementById('rejection-modal').classList.remove('hidden');
+}
+
+function closeRejectionModal() {
+    document.getElementById('rejection-modal').classList.add('hidden');
+}
+
+function setQuickReason() {
+    const sel = document.getElementById('quick-reason-select');
+    if (sel.value) document.getElementById('rejection-reason-text').value = sel.value;
+}
+
+async function submitRejection() {
+    const reason = document.getElementById('rejection-reason-text').value.trim() || 'Verification failed';
+    const { type, id } = currentRejection;
+    if (!type || !id) return;
+
     try {
-        await fetch(API + `/api/admin/withdrawals/${id}/reject`, { method: 'POST', headers: authHeaders() });
-        loadWithdrawals(); loadStats();
-    } catch {}
+        const endpoint = type === 'deposit' ? `/api/admin/deposits/${id}/reject` : `/api/admin/withdrawals/${id}/reject`;
+        await fetch(API + endpoint, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ reason })
+        });
+        closeRejectionModal();
+        if (type === 'deposit') loadDeposits();
+        else loadWithdrawals();
+        loadStats();
+    } catch (err) { alert(err.message); }
 }
 
 // ─── Referrals ─────────────────────────────────────────────────────────────────
@@ -393,11 +527,12 @@ async function loadReferrals() {
         const refs = await res.json();
         document.getElementById('referrals-tbody').innerHTML = refs.map(r => `
             <tr>
-                <td>${r.username}</td>
+                <td><strong>${r.username}</strong></td>
                 <td style="font-family:monospace">${r.referralCode}</td>
                 <td>${r.totalReferred}</td>
-                <td>${r.activeReferrals}</td>
-                <td style="font-size:0.75rem">${r.referred.map(u => `${u.username}(${u.active ? '✅' : '❌'})`).join(', ') || '-'}</td>
+                <td><strong style="color:var(--success)">${r.activeReferrals}</strong></td>
+                <td style="color:var(--success);font-weight:700">₹${r.totalCommissionEarned || 0}</td>
+                <td style="font-size:0.75rem">${r.referred.map(u => `${u.username}(₹${u.totalBet}/300 ${u.bonusPaid ? '✅' : '⏳'})`).join(', ') || '-'}</td>
             </tr>
         `).join('');
     } catch {}
@@ -410,31 +545,46 @@ async function loadEligibility() {
         const data = await res.json();
         document.getElementById('eligibility-tbody').innerHTML = data.map(u => `
             <tr>
-                <td>${u.username}</td>
+                <td><strong>${u.username}</strong></td>
                 <td>₹${u.balance}</td>
                 <td>₹${u.totalDeposited}</td>
-                <td>${u.referrals}</td>
-                <td>${u.activeReferrals}</td>
-                <td>${u.eligible ? '✅' : '❌'}</td>
-                <td style="font-size:0.75rem">${u.reasons.join('; ') || 'All met'}</td>
+                <td>${u.referrals} (Active: ${u.activeReferrals})</td>
+                <td><button class="btn-action ${u.isVip ? 'btn-toggle-active' : ''}" onclick="toggleVip('${u.id}')">${u.isVip ? '⭐ VIP Enabled' : 'Standard'}</button></td>
+                <td>${u.eligible ? '✅ YES' : '❌ NO'}</td>
+                <td style="font-size:0.75rem">${u.isVip ? '⭐ VIP Pass Override' : (u.reasons.join('; ') || 'All requirements satisfied')}</td>
+                <td><button class="btn-action btn-approve" onclick="toggleVip('${u.id}')">Toggle VIP</button></td>
             </tr>
         `).join('');
     } catch {}
 }
 
-// ─── Banks & UPI ───────────────────────────────────────────────────────────────
+// ─── Banks & UPI Accounts ──────────────────────────────────────────────────────
 async function loadBanks() {
     try {
         const res = await fetch(API + '/api/admin/banks', { headers: authHeaders() });
         const data = await res.json();
+        const ledger = data.ledgerStats || {};
+
+        const depBtn = document.getElementById('global-deposits-btn');
+        if (depBtn) {
+            const enabled = data.settings?.depositsEnabled !== false;
+            depBtn.textContent = enabled ? '🟢 Deposits Active' : '🔴 Deposits Paused';
+            depBtn.className = `btn-toggle ${enabled ? '' : 'locked'}`;
+        }
 
         document.getElementById('banks-tbody').innerHTML = (data.banks || []).map(b => `
             <tr>
-                <td>${b.name || '-'}</td>
+                <td><strong>${b.name || '-'}</strong></td>
                 <td>${b.accountNumber || '-'}</td>
                 <td>${b.ifscCode || '-'}</td>
                 <td>${b.upiId || '-'}</td>
+                <td style="color:var(--success);font-weight:700">₹${ledger[b.name] || 0}</td>
                 <td><span class="badge ${b.active ? 'badge-active' : 'badge-suspended'}">${b.active ? 'Active' : 'Inactive'}</span></td>
+                <td>
+                    <button class="btn-action ${b.lockedForAll ? 'btn-reject' : 'btn-approve'}" onclick="toggleBankLock('${b.id}')">
+                        ${b.lockedForAll ? '🔒 Locked' : '🔓 Available'}
+                    </button>
+                </td>
                 <td>
                     <button class="btn-action ${b.active ? 'btn-reject' : 'btn-approve'}" onclick="toggleBank('${b.id}')">${b.active ? 'Disable' : 'Enable'}</button>
                     <button class="btn-action btn-delete" onclick="deleteBank('${b.id}')">🗑</button>
@@ -444,15 +594,28 @@ async function loadBanks() {
 
         document.getElementById('upis-tbody').innerHTML = (data.upis || []).map(u => `
             <tr>
-                <td>${u.name || '-'}</td>
+                <td><strong>${u.name || '-'}</strong></td>
                 <td style="font-weight:600">${u.upiId}</td>
+                <td style="color:var(--success);font-weight:700">₹${ledger[u.name] || 0}</td>
                 <td><span class="badge ${u.active ? 'badge-active' : 'badge-suspended'}">${u.active ? 'Active' : 'Inactive'}</span></td>
+                <td>
+                    <button class="btn-action ${u.lockedForAll ? 'btn-reject' : 'btn-approve'}" onclick="toggleUpiLock('${u.id}')">
+                        ${u.lockedForAll ? '🔒 Locked' : '🔓 Available'}
+                    </button>
+                </td>
                 <td>
                     <button class="btn-action ${u.active ? 'btn-reject' : 'btn-approve'}" onclick="toggleUpi('${u.id}')">${u.active ? 'Disable' : 'Enable'}</button>
                     <button class="btn-action btn-delete" onclick="deleteUpi('${u.id}')">🗑</button>
                 </td>
             </tr>
         `).join('');
+    } catch {}
+}
+
+async function toggleGlobalDeposits() {
+    try {
+        await fetch(API + '/api/admin/toggle-deposits', { method: 'POST', headers: authHeaders() });
+        loadBanks();
     } catch {}
 }
 
@@ -479,6 +642,13 @@ async function addBank() {
 async function toggleBank(id) {
     try {
         await fetch(API + `/api/admin/banks/${id}/toggle`, { method: 'POST', headers: authHeaders() });
+        loadBanks();
+    } catch {}
+}
+
+async function toggleBankLock(id) {
+    try {
+        await fetch(API + `/api/admin/banks/${id}/toggle-lock`, { method: 'POST', headers: authHeaders() });
         loadBanks();
     } catch {}
 }
@@ -514,6 +684,13 @@ async function toggleUpi(id) {
     } catch {}
 }
 
+async function toggleUpiLock(id) {
+    try {
+        await fetch(API + `/api/admin/upi/${id}/toggle-lock`, { method: 'POST', headers: authHeaders() });
+        loadBanks();
+    } catch {}
+}
+
 async function deleteUpi(id) {
     if (!confirm('Delete this UPI account?')) return;
     try {
@@ -532,7 +709,7 @@ async function populateUserDropdown() {
         const currentVal = select.value;
         let html = '<option value="all">📢 All Users (Broadcast)</option>';
         users.forEach(u => {
-            html += `<option value="${u.id}">👤 ${u.username}</option>`;
+            html += `<option value="${u.id}">👤 ${u.username} (${u.phone || 'No phone'})</option>`;
         });
         select.innerHTML = html;
         if (currentVal) select.value = currentVal;
@@ -546,7 +723,7 @@ async function openNotificationForUser(userId, username) {
     if (select) select.value = userId;
     const titleInput = document.getElementById('notif-title');
     if (titleInput) {
-        titleInput.value = `Message for ${username}`;
+        titleInput.value = `Official Message for @${username}`;
         titleInput.focus();
     }
 }

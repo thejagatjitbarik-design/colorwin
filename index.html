@@ -12,17 +12,126 @@
     <div id="auth-overlay" class="overlay">
         <div class="auth-box">
             <div class="auth-logo">🎯 ColorWin</div>
-            <p class="auth-sub">Colour Prediction Game</p>
+            <p class="auth-sub">Colour Prediction Platform</p>
             <div id="auth-error" class="auth-error hidden"></div>
             <form id="auth-form">
                 <input type="text" id="auth-username" placeholder="Username" required autocomplete="username">
                 <input type="password" id="auth-password" placeholder="Password" required autocomplete="current-password">
-                <div id="referral-field" class="hidden">
-                    <input type="text" id="auth-referral" placeholder="Referral Code (optional)">
+                <div id="register-extras" class="hidden">
+                    <input type="tel" id="auth-phone" placeholder="Mobile Number (Optional)">
+                    <input type="text" id="auth-referral" placeholder="Referral Code (Optional)">
+                    <div class="tc-container">
+                        <label class="tc-label">
+                            <input type="checkbox" id="auth-tc" required>
+                            <span>I agree to the <a href="#" id="open-tc-link">Terms & Conditions</a></span>
+                        </label>
+                    </div>
                 </div>
                 <button type="submit" id="auth-btn" class="btn-primary">Login</button>
+                <div id="forgot-link-box" class="forgot-box">
+                    <a href="#" id="open-forgot-link">Forgot Password?</a>
+                </div>
             </form>
             <p class="auth-toggle">Don't have an account? <a href="#" id="toggle-auth">Register</a></p>
+        </div>
+    </div>
+
+    <!-- ═══ FORGOT PASSWORD MODAL ═══ -->
+    <div id="forgot-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🔑 Reset Password</h3>
+                <button class="modal-close" onclick="closeForgotModal()">&times;</button>
+            </div>
+            <div style="padding:16px">
+                <p style="font-size:0.85rem;color:var(--text-dim);margin-bottom:14px;line-height:1.4">
+                    Enter your registered username and phone number. Our support team will verify and reset your credentials immediately.
+                </p>
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="forgot-user" placeholder="Enter your username">
+                </div>
+                <div class="form-group">
+                    <label>Registered Phone Number</label>
+                    <input type="tel" id="forgot-phone" placeholder="Enter phone number">
+                </div>
+                <button class="btn-primary" onclick="submitForgotPassword()" style="margin-bottom:10px">Submit Request</button>
+                <a href="https://wa.me/918260104294?text=Hello%20ColorWin%20Support,%20I%20forgot%20my%20password." target="_blank" class="btn-whatsapp" style="display:block;text-align:center;padding:12px;border-radius:10px">
+                    📱 Contact Support on WhatsApp
+                </a>
+                <div id="forgot-msg" class="msg hidden"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ TERMS & CONDITIONS MODAL ═══ -->
+    <div id="tc-modal" class="modal hidden">
+        <div class="modal-content" style="max-height:85vh">
+            <div class="modal-header">
+                <h3>📜 Platform Terms & Disclosure</h3>
+                <button class="modal-close" onclick="closeTcModal()">&times;</button>
+            </div>
+            <div class="tc-content" style="padding:18px;overflow-y:auto;font-size:0.85rem;color:var(--text);line-height:1.6">
+                <h4 style="color:var(--primary);margin-bottom:8px">1. Voluntary Financial Participation</h4>
+                <p style="color:var(--text-dim);margin-bottom:12px">
+                    ColorWin operates as an interactive digital forecast and prediction platform. All coin allocations and game participations are entirely voluntary and undertaken at the player's sole discretion and financial risk.
+                </p>
+
+                <h4 style="color:var(--primary);margin-bottom:8px">2. Strict No-Refund & Finality Policy</h4>
+                <p style="color:var(--text-dim);margin-bottom:12px">
+                    Once a round is closed and settled by platform mechanics, all results are definitive, irreversible, and non-refundable. The platform does not compensate for outcome variances or individual gaming decisions.
+                </p>
+
+                <h4 style="color:var(--primary);margin-bottom:8px">3. User Responsibility & Capital Risk</h4>
+                <p style="color:var(--text-dim);margin-bottom:12px">
+                    Players affirm they are of legal age and participate responsibly within their personal financial thresholds. The platform assumes zero fiduciary liability for individual losses or third-party banking delays.
+                </p>
+
+                <h4 style="color:var(--primary);margin-bottom:8px">4. Transaction Integrity</h4>
+                <p style="color:var(--text-dim);margin-bottom:14px">
+                    Deposits require authentic bank/UPI receipts. Submission of forged screenshots, recycled UTRs, or inaccurate details will result in immediate deposit rejection and potential account restriction.
+                </p>
+
+                <button class="btn-primary" onclick="closeTcModal()">I Understand & Accept</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ PRE-DEPOSIT VERIFY MODAL ═══ -->
+    <div id="deposit-verify-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🔍 Verify Payment Details</h3>
+                <button class="modal-close" onclick="closeDepositVerifyModal()">&times;</button>
+            </div>
+            <div style="padding:16px">
+                <p style="font-size:0.8rem;color:var(--gold);margin-bottom:12px;background:rgba(241,196,15,0.1);padding:10px;border-radius:8px">
+                    ⚠️ Please ensure your 12-digit UTR matches your bank/UPI transaction receipt exactly before confirming.
+                </p>
+                <div class="verify-detail-row"><span>Amount</span><strong id="v-amount">₹0</strong></div>
+                <div class="verify-detail-row"><span>UTR / Txn ID</span><strong id="v-txn" style="font-family:monospace">---</strong></div>
+                <div class="verify-detail-row"><span>Sent To</span><strong id="v-account">---</strong></div>
+                <div style="margin-top:12px;font-size:0.8rem;color:var(--text-dim)">Payment Proof Attached:</div>
+                <div style="text-align:center;margin:8px 0">
+                    <img id="v-screenshot" style="max-width:100%;max-height:140px;border-radius:8px;border:1px solid var(--card-border)">
+                </div>
+                <div style="display:flex;gap:10px;margin-top:16px">
+                    <button class="btn-secondary" onclick="closeDepositVerifyModal()" style="flex:1">✏️ Edit</button>
+                    <button class="btn-primary" id="v-confirm-btn" onclick="executeDepositSubmission()" style="flex:1">✅ Confirm</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ SESSION REPLACED OVERLAY ═══ -->
+    <div id="session-overlay" class="overlay hidden">
+        <div class="auth-box">
+            <div class="suspended-icon">⚠️</div>
+            <h2>Logged Out</h2>
+            <p style="color:var(--text-dim);font-size:0.9rem;margin:12px 0 20px">
+                Your account was opened from another device or browser. For your security, ColorWin only permits one active session at a time.
+            </p>
+            <button class="btn-primary" onclick="location.reload()">Login on this Device</button>
         </div>
     </div>
 
@@ -77,49 +186,58 @@
     <main class="main-content">
         <!-- GAME PAGE -->
         <section id="page-game" class="page active">
-            <div class="timer-section">
-                <div class="timer-circle" id="timer-circle">
-                    <div class="timer-inner">
-                        <div class="timer-phase" id="timer-phase">Waiting...</div>
-                        <div class="timer-display" id="timer-display">02:00</div>
-                        <div class="timer-round" id="timer-round">Round #--</div>
-                    </div>
-                </div>
+            <!-- Maintenance Mode Banner -->
+            <div id="maintenance-banner" class="maintenance-box hidden">
+                <div class="m-icon">🛠️</div>
+                <h3>System Maintenance</h3>
+                <p>Game rounds are temporarily paused for routine server upgrades. Your wallet balance is 100% secure. Betting will resume shortly!</p>
             </div>
 
-            <div class="results-strip">
-                <div class="strip-label">Recent</div>
-                <div class="strip-dots" id="results-strip"></div>
-            </div>
+            <div id="active-game-container">
+                <div class="timer-section">
+                    <div class="timer-circle" id="timer-circle">
+                        <div class="timer-inner">
+                            <div class="timer-phase" id="timer-phase">Waiting...</div>
+                            <div class="timer-display" id="timer-display">02:00</div>
+                            <div class="timer-round" id="timer-round">Round #--</div>
+                        </div>
+                    </div>
+                </div>
 
-            <div class="bet-section" id="bet-section">
-                <div class="color-buttons">
-                    <button class="color-btn red" data-color="red" onclick="selectColor('red')">
-                        <span class="color-name">Red</span>
-                        <span class="color-multi">2x</span>
-                    </button>
-                    <button class="color-btn violet" data-color="violet" onclick="selectColor('violet')">
-                        <span class="color-name">Violet</span>
-                        <span class="color-multi">2x</span>
-                    </button>
-                    <button class="color-btn green" data-color="green" onclick="selectColor('green')">
-                        <span class="color-name">Green</span>
-                        <span class="color-multi">2x</span>
-                    </button>
+                <div class="results-strip">
+                    <div class="strip-label">Recent</div>
+                    <div class="strip-dots" id="results-strip"></div>
                 </div>
-                <div class="bet-controls">
-                    <div class="amount-chips">
-                        <button class="chip" onclick="setAmount(10)">₹10</button>
-                        <button class="chip" onclick="setAmount(50)">₹50</button>
-                        <button class="chip" onclick="setAmount(100)">₹100</button>
-                        <button class="chip" onclick="setAmount(500)">₹500</button>
+
+                <div class="bet-section" id="bet-section">
+                    <div class="color-buttons">
+                        <button class="color-btn red" data-color="red" onclick="selectColor('red')">
+                            <span class="color-name">Red</span>
+                            <span class="color-multi">2x</span>
+                        </button>
+                        <button class="color-btn violet" data-color="violet" onclick="selectColor('violet')">
+                            <span class="color-name">Violet</span>
+                            <span class="color-multi">2x</span>
+                        </button>
+                        <button class="color-btn green" data-color="green" onclick="selectColor('green')">
+                            <span class="color-name">Green</span>
+                            <span class="color-multi">2x</span>
+                        </button>
                     </div>
-                    <div class="bet-input-row">
-                        <input type="number" id="bet-amount" placeholder="Enter amount" min="10">
-                        <button class="btn-primary btn-bet" id="place-bet-btn" onclick="placeBet()">Place Bet</button>
+                    <div class="bet-controls">
+                        <div class="amount-chips">
+                            <button class="chip" onclick="setAmount(10)">₹10</button>
+                            <button class="chip" onclick="setAmount(50)">₹50</button>
+                            <button class="chip" onclick="setAmount(100)">₹100</button>
+                            <button class="chip" onclick="setAmount(500)">₹500</button>
+                        </div>
+                        <div class="bet-input-row">
+                            <input type="number" id="bet-amount" placeholder="Enter amount" min="10">
+                            <button class="btn-primary btn-bet" id="place-bet-btn" onclick="placeBet()">Place Bet</button>
+                        </div>
                     </div>
+                    <div id="bet-status" class="bet-status hidden"></div>
                 </div>
-                <div id="bet-status" class="bet-status hidden"></div>
             </div>
         </section>
 
@@ -135,18 +253,32 @@
             <div id="wallet-deposit" class="wallet-panel">
                 <h3>💳 Deposit Funds</h3>
                 <div id="deposit-bank-info" class="deposit-info">
-                    <p class="loading-text">Loading payment details...</p>
+                    <p class="loading-text">Loading assigned payment account...</p>
+                </div>
+                <div class="amount-chips" style="margin-bottom:12px">
+                    <button class="chip" onclick="setDepositAmount(200)">₹200</button>
+                    <button class="chip" onclick="setDepositAmount(500)">₹500</button>
+                    <button class="chip" onclick="setDepositAmount(1000)">₹1000</button>
+                    <button class="chip" onclick="setDepositAmount(2000)">₹2000</button>
                 </div>
                 <div class="form-group">
-                    <label>Amount (min ₹100)</label>
-                    <input type="number" id="deposit-amount" min="100" placeholder="Enter amount">
+                    <label>Amount (min ₹200)</label>
+                    <input type="number" id="deposit-amount" min="200" placeholder="Minimum ₹200">
                 </div>
                 <div class="form-group">
-                    <label>UTR / Transaction ID</label>
-                    <input type="text" id="deposit-txn" placeholder="Enter transaction ID">
+                    <label>12-Digit UTR / Transaction ID</label>
+                    <input type="text" id="deposit-txn" placeholder="Enter transaction reference">
                 </div>
-                <button class="btn-primary" onclick="submitDeposit()">Submit Deposit</button>
-                <div class="notice">⏰ Deposits are verified within 6 hours</div>
+                <div class="form-group">
+                    <label>Upload Payment Proof (Mandatory Screenshot)</label>
+                    <input type="file" id="deposit-screenshot-input" accept="image/*" onchange="previewScreenshot(event)">
+                    <div id="screenshot-preview-container" class="hidden" style="margin-top:8px;text-align:center">
+                        <img id="screenshot-preview-img" style="max-width:100%;max-height:160px;border-radius:8px;border:1px solid var(--card-border)">
+                        <div style="font-size:0.75rem;color:var(--success);margin-top:4px">✓ Screenshot Attached</div>
+                    </div>
+                </div>
+                <button class="btn-primary" onclick="initiateDepositVerification()">Verify & Submit</button>
+                <div class="notice">⏰ Deposits verified within 6 hours. False submissions lead to account review.</div>
                 <div id="deposit-msg" class="msg hidden"></div>
             </div>
 
@@ -162,7 +294,7 @@
                     <div class="fee-row net"><span>You receive</span><span id="net-amount">₹0</span></div>
                 </div>
                 <div id="eligibility-check" class="eligibility-box">
-                    <h4>Withdrawal Requirements</h4>
+                    <h4>Withdrawal Eligibility</h4>
                     <div id="eligibility-list"></div>
                 </div>
                 <button class="btn-primary" id="withdraw-btn" onclick="submitWithdraw()">Withdraw</button>
@@ -231,13 +363,13 @@
                 <div class="support-header">
                     <div class="support-logo">🎯</div>
                     <h2>ColorWin Support</h2>
-                    <p>We're here to help 24/7</p>
+                    <p>Official 24/7 Assistance Desk</p>
                 </div>
                 <div class="support-channels">
                     <a href="https://wa.me/918260104294" target="_blank" class="support-item whatsapp">
                         <div class="support-icon">📱</div>
                         <div class="support-detail">
-                            <div class="support-label">WhatsApp Support</div>
+                            <div class="support-label">WhatsApp Helpline 1</div>
                             <div class="support-value">+91 82601 04294</div>
                         </div>
                         <div class="support-arrow">→</div>
@@ -245,7 +377,7 @@
                     <a href="https://wa.me/918144717930" target="_blank" class="support-item whatsapp">
                         <div class="support-icon">📱</div>
                         <div class="support-detail">
-                            <div class="support-label">WhatsApp Support 2</div>
+                            <div class="support-label">WhatsApp Helpline 2</div>
                             <div class="support-value">+91 81447 17930</div>
                         </div>
                         <div class="support-arrow">→</div>
@@ -253,14 +385,14 @@
                     <a href="mailto:blackcyberp@gmail.com" class="support-item email">
                         <div class="support-icon">✉️</div>
                         <div class="support-detail">
-                            <div class="support-label">Email Support</div>
+                            <div class="support-label">Official Email Support</div>
                             <div class="support-value">blackcyberp@gmail.com</div>
                         </div>
                         <div class="support-arrow">→</div>
                     </a>
                 </div>
                 <div class="support-footer">
-                    <p>💡 Average response time: Under 30 minutes</p>
+                    <p>💡 Average support response time: Under 15 minutes</p>
                 </div>
             </div>
         </section>
@@ -270,15 +402,19 @@
             <div class="profile-card">
                 <div class="profile-avatar" id="profile-avatar">U</div>
                 <h2 id="profile-username">Username</h2>
+                <div id="profile-phone" style="font-size:0.85rem;color:var(--text-dim);margin-top:2px">Phone: ---</div>
                 <div class="profile-stats">
                     <div class="p-stat"><span class="p-val" id="p-bets">0</span><span class="p-label">Bets</span></div>
                     <div class="p-stat"><span class="p-val" id="p-won">₹0</span><span class="p-label">Won</span></div>
-                    <div class="p-stat"><span class="p-val" id="p-deposited">₹0</span><span class="p-label">Deposited</span></div>
+                    <div class="p-stat"><span class="p-val" id="p-commission" style="color:var(--success)">₹0</span><span class="p-label">Commission (0.04%)</span></div>
                 </div>
             </div>
 
             <div class="referral-card">
-                <h3>🔗 Your Referral</h3>
+                <h3>🔗 Referral Rewards</h3>
+                <div style="font-size:0.8rem;color:var(--text-dim);margin-bottom:12px">
+                    🎁 <strong>₹50 Direct Bonus</strong> once your friend bets ₹300 + <strong>0.04% commission</strong> on every winning bet!
+                </div>
                 <div class="ref-code-box">
                     <span id="ref-code">---</span>
                     <button class="btn-copy" onclick="copyReferral()">📋 Copy</button>
@@ -288,8 +424,8 @@
                     <button class="btn-copy" onclick="copyRefLink()">📋</button>
                 </div>
                 <div class="ref-stats">
-                    <span>Total: <strong id="ref-total">0</strong></span>
-                    <span>Active: <strong id="ref-active">0</strong></span>
+                    <span>Referred: <strong id="ref-total">0</strong></span>
+                    <span>Bonus Qualified: <strong id="ref-active">0</strong></span>
                 </div>
                 <div id="ref-list" class="ref-list"></div>
             </div>

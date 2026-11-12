@@ -11,7 +11,7 @@
     <!-- ═══ LOGIN ═══ -->
     <div id="admin-login" class="login-overlay">
         <div class="login-box">
-            <h2>🛡️ Admin Panel</h2>
+            <h2>🛡️ Admin Control Panel</h2>
             <div id="login-error" class="login-error hidden"></div>
             <form id="login-form">
                 <input type="text" id="login-user" placeholder="Username" required>
@@ -21,12 +21,77 @@
         </div>
     </div>
 
+    <!-- ═══ SCREENSHOT MODAL ═══ -->
+    <div id="screenshot-modal" class="admin-modal hidden">
+        <div class="admin-modal-content" style="max-width:550px">
+            <div class="admin-modal-header">
+                <h3>📸 Payment Proof Screenshot</h3>
+                <button class="modal-close" onclick="closeScreenshotModal()">&times;</button>
+            </div>
+            <div style="padding:16px;text-align:center">
+                <img id="modal-screenshot-img" style="max-width:100%;max-height:75vh;border-radius:8px">
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ REJECTION REASON MODAL ═══ -->
+    <div id="rejection-modal" class="admin-modal hidden">
+        <div class="admin-modal-content" style="max-width:440px">
+            <div class="admin-modal-header">
+                <h3 id="rejection-title">❌ Decline Request</h3>
+                <button class="modal-close" onclick="closeRejectionModal()">&times;</button>
+            </div>
+            <div style="padding:16px">
+                <p style="font-size:0.85rem;color:var(--text-dim);margin-bottom:12px">
+                    Select or type the explanation. The user will receive an automated private notification with this reason:
+                </p>
+                <div class="form-group">
+                    <label style="font-size:0.8rem;color:var(--text-dim);display:block;margin-bottom:6px">Quick Reason</label>
+                    <select id="quick-reason-select" onchange="setQuickReason()" style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid var(--card-border);border-radius:8px;color:var(--text)">
+                        <option value="">-- Choose reason --</option>
+                        <option value="Invalid or Unmatched UTR / Transaction ID">Invalid or Unmatched UTR / Transaction ID</option>
+                        <option value="Payment Screenshot is blurry or unreadable">Payment Screenshot is blurry or unreadable</option>
+                        <option value="Funds not received in our destination account">Funds not received in our destination account</option>
+                        <option value="Incorrect Bank / IFSC details provided">Incorrect Bank / IFSC details provided</option>
+                        <option value="Duplicate transaction ID submitted">Duplicate transaction ID submitted</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label style="font-size:0.8rem;color:var(--text-dim);display:block;margin-bottom:6px">Reason Explanation</label>
+                    <textarea id="rejection-reason-text" rows="3" placeholder="Type reason..."></textarea>
+                </div>
+                <button class="btn-primary" id="confirm-reject-btn" onclick="submitRejection()">Confirm Decline</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ RESET PASSWORD MODAL ═══ -->
+    <div id="reset-pass-modal" class="admin-modal hidden">
+        <div class="admin-modal-content" style="max-width:400px">
+            <div class="admin-modal-header">
+                <h3>🔑 Reset User Password</h3>
+                <button class="modal-close" onclick="closeResetPassModal()">&times;</button>
+            </div>
+            <div style="padding:16px">
+                <p style="font-size:0.85rem;color:var(--text-dim);margin-bottom:12px">
+                    Resetting password for: <strong id="reset-target-username">---</strong>
+                </p>
+                <div class="form-group">
+                    <label style="font-size:0.8rem;color:var(--text-dim);display:block;margin-bottom:6px">New Password</label>
+                    <input type="text" id="reset-new-pass" placeholder="Enter new password (min 4 chars)">
+                </div>
+                <button class="btn-primary" onclick="submitPasswordReset()">Update Password</button>
+                <div id="reset-pass-msg" class="msg hidden"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- ═══ ADMIN PANEL ═══ -->
     <div id="admin-panel" class="admin-panel hidden">
         <!-- Sidebar -->
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
-                <span class="sidebar-brand">🛡️ Admin</span>
+                <span class="sidebar-brand">🛡️ ColorWin Admin</span>
                 <button class="sidebar-close" onclick="toggleSidebar()">✕</button>
             </div>
             <nav class="sidebar-nav">
@@ -59,7 +124,7 @@
                     <div class="stat-card"><div class="stat-val" id="st-rounds">0</div><div class="stat-label">Total Rounds</div></div>
                     <div class="stat-card"><div class="stat-val" id="st-bet">₹0</div><div class="stat-label">Total Bet</div></div>
                     <div class="stat-card"><div class="stat-val" id="st-payout">₹0</div><div class="stat-label">Total Payout</div></div>
-                    <div class="stat-card profit"><div class="stat-val" id="st-profit">₹0</div><div class="stat-label">Profit</div></div>
+                    <div class="stat-card profit"><div class="stat-val" id="st-profit">₹0</div><div class="stat-label">Net Profit</div></div>
                     <div class="stat-card warn" id="st-pend-dep-card"><div class="stat-val" id="st-pend-dep">0</div><div class="stat-label">Pending Deposits</div></div>
                     <div class="stat-card warn" id="st-pend-wd-card"><div class="stat-val" id="st-pend-wd">0</div><div class="stat-label">Pending Withdrawals</div></div>
                     <div class="stat-card danger" id="st-dup-card"><div class="stat-val" id="st-dup">0</div><div class="stat-label">⚠️ Duplicate Deposits</div></div>
@@ -71,27 +136,51 @@
             <section id="page-game" class="page hidden">
                 <div class="game-grid">
                     <div class="game-card">
-                        <h3>⏱️ Round Timer</h3>
+                        <h3>⏱️ Round Timer & Master Controls</h3>
                         <div class="game-timer">
                             <div class="game-phase" id="game-phase">--</div>
                             <div class="game-time" id="game-time">02:00</div>
                             <div class="game-round" id="game-round">Round #--</div>
                         </div>
-                        <div class="game-actions">
-                            <button class="btn-toggle" id="toggle-bet-btn" onclick="toggleBetting()">🔒 Lock Bets</button>
+                        <div class="game-actions" style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+                            <button class="btn-toggle" id="toggle-bet-btn" onclick="toggleBetting()">🛠️ Maintenance Mode</button>
+                            <button class="btn-toggle" id="toggle-auto-btn" onclick="toggleAutoResult()">🤖 Auto-Result: ON</button>
+                        </div>
+                        <div style="font-size:0.75rem;color:var(--text-dim);text-align:center;margin-top:10px">
+                            💡 Auto-Result automatically crowns the <strong>Lowest Bet Color</strong> as Winner if you are away.
                         </div>
                     </div>
+
                     <div class="game-card">
-                        <h3>📊 Live Bets</h3>
+                        <h3>📊 Live Bets & Risk Analysis</h3>
                         <div class="bet-summary">
-                            <div class="bs-row red"><span class="bs-color">🔴 Red</span><span class="bs-count" id="bs-red-count">0</span><span class="bs-total" id="bs-red-total">₹0</span></div>
-                            <div class="bs-row green"><span class="bs-color">🟢 Green</span><span class="bs-count" id="bs-green-count">0</span><span class="bs-total" id="bs-green-total">₹0</span></div>
-                            <div class="bs-row violet"><span class="bs-color">🟣 Violet</span><span class="bs-count" id="bs-violet-count">0</span><span class="bs-total" id="bs-violet-total">₹0</span></div>
+                            <div class="bs-row red">
+                                <span class="bs-color">🔴 Red</span>
+                                <span class="bs-count" id="bs-red-count">0</span>
+                                <span class="bs-total" id="bs-red-total">₹0</span>
+                                <span class="badge" id="badge-red-status" style="font-size:0.65rem">--</span>
+                            </div>
+                            <div class="bs-row green">
+                                <span class="bs-color">🟢 Green</span>
+                                <span class="bs-count" id="bs-green-count">0</span>
+                                <span class="bs-total" id="bs-green-total">₹0</span>
+                                <span class="badge" id="badge-green-status" style="font-size:0.65rem">--</span>
+                            </div>
+                            <div class="bs-row violet">
+                                <span class="bs-color">🟣 Violet</span>
+                                <span class="bs-count" id="bs-violet-count">0</span>
+                                <span class="bs-total" id="bs-violet-total">₹0</span>
+                                <span class="badge" id="badge-violet-status" style="font-size:0.65rem">--</span>
+                            </div>
                         </div>
-                        <div class="bs-betters">Total Betters: <strong id="bs-total-betters">0</strong></div>
+                        <div class="bs-betters">
+                            Total Betters: <strong id="bs-total-betters">0</strong> | 
+                            Auto-Winner: <strong id="bs-auto-pick" style="color:var(--success)">--</strong>
+                        </div>
                     </div>
+
                     <div class="game-card full-width">
-                        <h3>🎯 Set Result</h3>
+                        <h3>🎯 Manual Result Override (Active Play)</h3>
                         <div class="result-buttons">
                             <button class="result-btn red" onclick="setResult('red')">RED</button>
                             <button class="result-btn green" onclick="setResult('green')">GREEN</button>
@@ -108,6 +197,7 @@
                     <div class="inline-form">
                         <input type="text" id="new-user-name" placeholder="Username">
                         <input type="password" id="new-user-pass" placeholder="Password">
+                        <input type="tel" id="new-user-phone" placeholder="Phone (optional)">
                         <input type="number" id="new-user-bal" placeholder="Balance" value="50">
                         <button class="btn-primary btn-sm" onclick="addUser()">Add User</button>
                     </div>
@@ -117,7 +207,16 @@
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th>User</th><th>Balance</th><th>Bet/Won</th><th>Inactive</th><th>Status</th><th>Bank/UPI</th><th>Actions</th>
+                                <th>User</th>
+                                <th>Phone</th>
+                                <th>Balance</th>
+                                <th>Bet / Won</th>
+                                <th>Commission</th>
+                                <th>Inactive</th>
+                                <th>Status</th>
+                                <th>VIP Pass</th>
+                                <th>Bank / UPI</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="users-tbody"></tbody>
@@ -131,7 +230,17 @@
                 <div class="table-wrap">
                     <table class="data-table">
                         <thead>
-                            <tr><th>User</th><th>Amount</th><th>Txn ID</th><th>Status</th><th>Duplicate?</th><th>Date</th><th>Actions</th></tr>
+                            <tr>
+                                <th>User</th>
+                                <th>Amount</th>
+                                <th>Proof Screenshot</th>
+                                <th>UTR / Txn ID</th>
+                                <th>Paid To (Account)</th>
+                                <th>Status</th>
+                                <th>Duplicate?</th>
+                                <th>Date</th>
+                                <th>Actions</th>
+                            </tr>
                         </thead>
                         <tbody id="deposits-tbody"></tbody>
                     </table>
@@ -143,7 +252,17 @@
                 <div class="table-wrap">
                     <table class="data-table">
                         <thead>
-                            <tr><th>User</th><th>Amount</th><th>Fee</th><th>Net</th><th>Bank/UPI</th><th>Status</th><th>Date</th><th>Actions</th></tr>
+                            <tr>
+                                <th>User</th>
+                                <th>Amount</th>
+                                <th>Fee (0.5%)</th>
+                                <th>Net Pay</th>
+                                <th>Bank / UPI</th>
+                                <th>VIP Pass</th>
+                                <th>Status</th>
+                                <th>Date</th>
+                                <th>Actions</th>
+                            </tr>
                         </thead>
                         <tbody id="withdrawals-tbody"></tbody>
                     </table>
@@ -155,7 +274,14 @@
                 <div class="table-wrap">
                     <table class="data-table">
                         <thead>
-                            <tr><th>User</th><th>Referral Code</th><th>Total</th><th>Active</th><th>Referred Users</th></tr>
+                            <tr>
+                                <th>User</th>
+                                <th>Referral Code</th>
+                                <th>Total Ref</th>
+                                <th>Bonus Qualified (≥₹300)</th>
+                                <th>0.04% Commission Earned</th>
+                                <th>Referred Users Progress</th>
+                            </tr>
                         </thead>
                         <tbody id="referrals-tbody"></tbody>
                     </table>
@@ -167,7 +293,16 @@
                 <div class="table-wrap">
                     <table class="data-table">
                         <thead>
-                            <tr><th>User</th><th>Balance</th><th>Deposited</th><th>Referrals</th><th>Active Ref</th><th>Eligible</th><th>Reasons</th></tr>
+                            <tr>
+                                <th>User</th>
+                                <th>Balance</th>
+                                <th>Deposited</th>
+                                <th>Referrals</th>
+                                <th>VIP Override</th>
+                                <th>Eligible</th>
+                                <th>Reasons</th>
+                                <th>Actions</th>
+                            </tr>
                         </thead>
                         <tbody id="eligibility-tbody"></tbody>
                     </table>
@@ -176,8 +311,18 @@
 
             <!-- BANKS & UPI -->
             <section id="page-banks" class="page hidden">
+                <!-- Master Deposit Gateway Switch -->
+                <div class="section-card" style="display:flex;justify-content:space-between;align-items:center;background:rgba(108,92,231,0.1);border-color:rgba(108,92,231,0.3)">
+                    <div>
+                        <h3 style="margin-bottom:4px">🌐 Global Deposit Gateway</h3>
+                        <p style="font-size:0.85rem;color:var(--text-dim)">Pause or resume incoming deposits platform-wide across all accounts</p>
+                    </div>
+                    <button class="btn-toggle" id="global-deposits-btn" onclick="toggleGlobalDeposits()">🟢 Deposits Active</button>
+                </div>
+
+                <!-- Add Bank -->
                 <div class="section-card">
-                    <h3>🏦 Add Bank Account</h3>
+                    <h3>🏦 Add Bank Account (Auto-Shuffled to Players)</h3>
                     <div class="inline-form">
                         <input type="text" id="ab-name" placeholder="Account Name">
                         <input type="text" id="ab-number" placeholder="Account Number">
@@ -188,13 +333,18 @@
                 </div>
                 <div class="table-wrap">
                     <table class="data-table">
-                        <thead><tr><th>Name</th><th>Account</th><th>IFSC</th><th>UPI</th><th>Status</th><th>Actions</th></tr></thead>
+                        <thead>
+                            <tr>
+                                <th>Name</th><th>Account</th><th>IFSC</th><th>UPI</th><th>Total Collected</th><th>Status</th><th>Lock for All</th><th>Actions</th>
+                            </tr>
+                        </thead>
                         <tbody id="banks-tbody"></tbody>
                     </table>
                 </div>
 
+                <!-- Add UPI -->
                 <div class="section-card" style="margin-top:20px">
-                    <h3>📲 Add UPI Account</h3>
+                    <h3>📲 Add Fast UPI Account</h3>
                     <div class="inline-form">
                         <input type="text" id="au-name" placeholder="Display Name">
                         <input type="text" id="au-upi" placeholder="UPI ID">
@@ -203,7 +353,11 @@
                 </div>
                 <div class="table-wrap">
                     <table class="data-table">
-                        <thead><tr><th>Name</th><th>UPI ID</th><th>Status</th><th>Actions</th></tr></thead>
+                        <thead>
+                            <tr>
+                                <th>Name</th><th>UPI ID</th><th>Total Collected</th><th>Status</th><th>Lock for All</th><th>Actions</th>
+                            </tr>
+                        </thead>
                         <tbody id="upis-tbody"></tbody>
                     </table>
                 </div>
