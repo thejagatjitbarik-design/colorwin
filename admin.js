@@ -17,6 +17,8 @@ function escapeAttr(str) {
     if (!str) return '';
     return String(str).replace(/'/g, "\\'").replace(/"/g, '&quot;');
 }
+window.escapeHtml = escapeHtml;
+window.escapeAttr = escapeAttr;
 
 function toggleInputEye(inputId, btn) {
     const input = document.getElementById(inputId);

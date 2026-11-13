@@ -9,6 +9,21 @@ let notifCount = 0;
 let currentScreenshotBase64 = null;
 let currentAssignedAccountName = 'Main Deposit Gateway';
 
+// ─── Helpers: Escape HTML & Attributes ──────────────────────────────────────────
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str).replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[m]);
+}
+
+function escapeAttr(str) {
+    if (str === null || str === undefined) return '';
+    return String(str).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+window.escapeHtml = escapeHtml;
+window.escapeAttr = escapeAttr;
+
 // ══════════════════════════════════════════════════════════════════════════════════
 // 🔊 ColorWin Web Audio Ringtone & Sound FX Engine (High Fidelity, Zero Network)
 // ══════════════════════════════════════════════════════════════════════════════════
@@ -568,6 +583,15 @@ function connectSocket() {
         }
     });
 
+    socket.on('bank:lock_status', (data) => {
+        if (!currentChannelsList || currentChannelsList.length === 0) return;
+        const ch = currentChannelsList.find(c => c.id === data.bankId);
+        if (ch) {
+            ch.isAvailable = data.isAvailable;
+            renderDepositChannels();
+        }
+    });
+
     socket.on('session:replaced', () => showSessionReplaced());
 }
 
@@ -733,10 +757,6 @@ function showWalletTab(tab) {
 }
 
 // ─── Deposit Flow & Mandatory Screenshot ───────────────────────────────────────
-function setDepositAmount(val) {
-    document.getElementById('deposit-amount').value = val;
-}
-
 function previewScreenshot(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -830,7 +850,7 @@ function renderDepositChannels() {
             : 'background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.1);opacity:0.6;cursor:not-allowed;';
 
         return `
-            <div class="deposit-channel-card" onclick="${c.isAvailable ? `selectDepositChannel('${c.id}')` : `onTakenChannelClick('${escapeHtml(c.name)}')`}" style="padding:12px 14px;border-radius:10px;transition:all 0.2s;${cardStyle}">
+            <div class="deposit-channel-card" onclick="${c.isAvailable ? `selectDepositChannel('${c.id}')` : `onTakenChannelClick('${c.id}')`}" style="padding:12px 14px;border-radius:10px;transition:all 0.2s;${cardStyle}">
                 <div style="display:flex;justify-content:space-between;align-items:center">
                     <div>
                         <div style="font-weight:700;font-size:0.92rem;color:${isSelected ? '#fff' : 'var(--text)'}">
@@ -851,13 +871,15 @@ function renderDepositChannels() {
     }).join('');
 }
 
-function onTakenChannelClick(bankName) {
+function onTakenChannelClick(bankId) {
+    const ch = (currentChannelsList || []).find(c => c.id === bankId);
+    const bankName = ch ? (ch.name || 'This account') : 'This account';
     const collisionAlert = document.getElementById('deposit-collision-alert');
     if (collisionAlert) {
         collisionAlert.classList.remove('hidden');
         const sub = document.getElementById('collision-alert-sub');
         if (sub) {
-            sub.textContent = `Account '${bankName}' is already taken by another player! Please select an available green account.`;
+            sub.textContent = `Account '${escapeHtml(bankName)}' is already taken by another player! Please select an available green account.`;
         }
     }
 }
