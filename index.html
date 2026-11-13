@@ -421,34 +421,90 @@
             <!-- Deposit Tab -->
             <div id="wallet-deposit" class="wallet-panel">
                 <h3>💳 Deposit Funds</h3>
-                <div id="deposit-bank-info" class="deposit-info">
-                    <p class="loading-text">Loading assigned payment account...</p>
-                </div>
-                <div class="amount-chips" style="margin-bottom:12px">
-                    <button class="chip" onclick="setDepositAmount(200)">₹200</button>
-                    <button class="chip" onclick="setDepositAmount(500)">₹500</button>
-                    <button class="chip" onclick="setDepositAmount(1000)">₹1000</button>
-                    <button class="chip" onclick="setDepositAmount(2000)">₹2000</button>
-                </div>
-                <div class="form-group">
-                    <label>Amount (min ₹200)</label>
-                    <input type="number" id="deposit-amount" min="200" placeholder="Minimum ₹200">
-                </div>
-                <div class="form-group">
-                    <label>12-Digit UTR / Transaction ID</label>
-                    <input type="text" id="deposit-txn" placeholder="Enter transaction reference">
-                </div>
-                <div class="form-group">
-                    <label>Upload Payment Proof (Mandatory Screenshot)</label>
-                    <input type="file" id="deposit-screenshot-input" accept="image/*" onchange="previewScreenshot(event)">
-                    <div id="screenshot-preview-container" class="hidden" style="margin-top:8px;text-align:center">
-                        <img id="screenshot-preview-img" style="max-width:100%;max-height:160px;border-radius:8px;border:1px solid var(--card-border)">
-                        <div style="font-size:0.75rem;color:var(--success);margin-top:4px">✓ Screenshot Attached</div>
+
+                <!-- STEP 1: Select Amount & Shuffled Bank Channel -->
+                <div id="deposit-step-select">
+                    <div class="amount-chips" style="margin-bottom:12px">
+                        <button type="button" class="chip" onclick="setDepositAmount(200)">₹200</button>
+                        <button type="button" class="chip" onclick="setDepositAmount(500)">₹500</button>
+                        <button type="button" class="chip" onclick="setDepositAmount(1000)">₹1000</button>
+                        <button type="button" class="chip" onclick="setDepositAmount(2000)">₹2000</button>
                     </div>
+                    <div class="form-group" style="margin-bottom:14px">
+                        <label>Deposit Amount (min ₹200)</label>
+                        <input type="number" id="deposit-amount" min="200" placeholder="Enter amount (min ₹200)" value="200" oninput="onDepositAmountChange()">
+                    </div>
+
+                    <!-- Concurrency Collision Alert Banner -->
+                    <div id="deposit-collision-alert" class="hidden" style="background:rgba(231,76,60,0.15);border:1px solid var(--danger);color:#ff7675;padding:12px 14px;border-radius:10px;font-size:0.85rem;margin-bottom:14px;line-height:1.4">
+                        ⚠️ <strong>Someone has takeaway this account choose another</strong><br>
+                        <span id="collision-alert-sub" style="font-size:0.8rem;color:#ddd">Another available account has been highlighted for you below.</span>
+                    </div>
+
+                    <div style="margin-bottom:10px">
+                        <label style="font-size:0.85rem;color:var(--text);font-weight:700">Select Available Payment Channel (Auto-Shuffled)</label>
+                        <p style="font-size:0.78rem;color:var(--text-dim);margin:2px 0 8px">
+                            Each account is assigned exclusively. Click an available channel and click Pay Now to lock it for 15 minutes.
+                        </p>
+                    </div>
+
+                    <!-- Shuffled Bank Accounts Container -->
+                    <div id="deposit-channels-container" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+                        <p class="loading-text">Loading shuffled payment channels...</p>
+                    </div>
+
+                    <button type="button" id="btn-lock-channel" class="btn-primary" onclick="lockSelectedDepositChannel()" style="width:100%;padding:12px;font-size:1rem;font-weight:700">
+                        ⚡ Pay Now (Lock Payment Channel)
+                    </button>
+                    <div id="deposit-select-msg" class="msg hidden" style="margin-top:10px"></div>
                 </div>
-                <button class="btn-primary" onclick="initiateDepositVerification()">Verify & Submit</button>
-                <div class="notice">⏰ Deposits verified within 6 hours. False submissions lead to account review.</div>
-                <div id="deposit-msg" class="msg hidden"></div>
+
+                <!-- STEP 2: Payment Procedure Screen (Shown Only When Account is Exclusively Locked) -->
+                <div id="deposit-step-procedure" class="hidden">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;background:rgba(108,92,231,0.15);padding:10px 14px;border-radius:10px;border:1px solid rgba(108,92,231,0.3)">
+                        <div style="font-size:0.82rem;color:#fff">
+                            <strong>🔒 Account Locked Exclusively to You</strong>
+                        </div>
+                        <div id="deposit-lock-timer" style="font-family:monospace;font-weight:800;color:var(--gold);font-size:0.95rem">
+                            ⏱️ 15:00
+                        </div>
+                    </div>
+
+                    <div id="deposit-bank-info" class="deposit-info" style="margin-bottom:14px">
+                        <!-- Populated with locked bank and fast UPI -->
+                    </div>
+
+                    <div style="background:rgba(255,255,255,0.04);border:1px solid var(--card-border);border-radius:10px;padding:12px;margin-bottom:14px;font-size:0.85rem">
+                        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                            <span style="color:var(--text-dim)">Amount to Transfer:</span>
+                            <strong id="procedure-amount-display" style="color:var(--accent);font-size:1rem">₹200</strong>
+                        </div>
+                        <div style="font-size:0.78rem;color:var(--text-dim);line-height:1.4">
+                            Send the exact amount to the account above via PhonePe, Paytm, GPay, or NetBanking. Then paste the 12-digit UTR below.
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>12-Digit UTR / Transaction ID</label>
+                        <input type="text" id="deposit-txn" placeholder="Enter 12-digit reference number">
+                    </div>
+                    <div class="form-group">
+                        <label>Upload Payment Proof (Mandatory Screenshot)</label>
+                        <input type="file" id="deposit-screenshot-input" accept="image/*" onchange="previewScreenshot(event)">
+                        <div id="screenshot-preview-container" class="hidden" style="margin-top:8px;text-align:center">
+                            <img id="screenshot-preview-img" style="max-width:100%;max-height:160px;border-radius:8px;border:1px solid var(--card-border)">
+                            <div style="font-size:0.75rem;color:var(--success);margin-top:4px">✓ Screenshot Attached</div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-primary" onclick="initiateDepositVerification()" style="width:100%;margin-bottom:8px">
+                        Verify & Submit Deposit
+                    </button>
+                    <button type="button" class="btn-action" onclick="cancelAndReleaseLock()" style="width:100%;padding:8px;background:rgba(255,255,255,0.06);border:1px solid var(--card-border);color:var(--text-dim);font-size:0.82rem">
+                        🔄 Cancel & Choose Another Account
+                    </button>
+                    <div class="notice" style="margin-top:10px">⏰ Deposits verified within 6 hours. False submissions lead to account review.</div>
+                    <div id="deposit-msg" class="msg hidden"></div>
+                </div>
             </div>
 
             <!-- Withdraw Tab -->

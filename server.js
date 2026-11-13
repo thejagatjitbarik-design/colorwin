@@ -453,55 +453,35 @@ function settleRound(result) {
     setTimeout(() => startNewRound(), RULES.RESULT_DELAY * 1000);
 }
 
-// ─── Dynamic Account Reservation (1-to-1 User Shuffling) ──────────────────────
-const userAccountSessions = {}; // userId -> { bankId, upiId, assignedAt }
+// ─── Dynamic Account Exclusive Locking & Shuffling System ───────────────────
+// bankId -> { userId, username, amount, lockedAt, expiresAt }
+const activeBankLocks = {};
+const BANK_LOCK_DURATION_MS = 15 * 60 * 1000; // 15-minute exclusive session
 
-function getShuffledDepositAccount(userId, db) {
-    const activeBanks = (db.bankAccounts || []).filter(b => b.active && !b.lockedForAll);
-    const activeUpis = (db.upiAccounts || []).filter(u => u.active && !u.lockedForAll);
-
-    if (activeBanks.length === 0 && activeUpis.length === 0) {
-        return { bank: null, upis: [] };
-    }
-
+function cleanExpiredBankLocks() {
     const now = Date.now();
-    const existing = userAccountSessions[userId];
-    // Keep session active for 10 minutes
-    if (existing && (now - existing.assignedAt) < 10 * 60 * 1000) {
-        const b = activeBanks.find(x => x.id === existing.bankId) || activeBanks[0] || null;
-        const u = activeUpis.find(x => x.id === existing.upiId) || activeUpis[0] || null;
-        return { bank: b, upis: u ? [u] : activeUpis };
+    for (const bankId in activeBankLocks) {
+        if (activeBankLocks[bankId].expiresAt <= now) {
+            delete activeBankLocks[bankId];
+        }
     }
-
-    // Assign account rotated per user
-    let assignedBank = null;
-    if (activeBanks.length > 0) {
-        const idx = Math.abs(hashCode(userId + Math.floor(now / (5 * 60 * 1000)))) % activeBanks.length;
-        assignedBank = activeBanks[idx];
-    }
-
-    let assignedUpi = null;
-    if (activeUpis.length > 0) {
-        const uIdx = Math.abs(hashCode(userId + 'upi' + Math.floor(now / (5 * 60 * 1000)))) % activeUpis.length;
-        assignedUpi = activeUpis[uIdx];
-    }
-
-    userAccountSessions[userId] = {
-        bankId: assignedBank?.id,
-        upiId: assignedUpi?.id,
-        assignedAt: now
-    };
-
-    return { bank: assignedBank, upis: assignedUpi ? [assignedUpi] : activeUpis };
 }
 
-function hashCode(str) {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-        hash = ((hash << 5) - hash) + str.charCodeAt(i);
-        hash |= 0;
+function getUserActiveBankLock(userId, db) {
+    cleanExpiredBankLocks();
+    const now = Date.now();
+    for (const bankId in activeBankLocks) {
+        const lock = activeBankLocks[bankId];
+        if (lock.userId === userId && lock.expiresAt > now) {
+            const bank = (db.bankAccounts || []).find(b => b.id === bankId && b.active && !b.lockedForAll);
+            if (bank) {
+                return { bank, lock };
+            } else {
+                delete activeBankLocks[bankId];
+            }
+        }
     }
-    return hash;
+    return null;
 }
 
 // ─── Middleware ────────────────────────────────────────────────────────────────
@@ -1493,14 +1473,196 @@ app.get('/api/my-referrals', authMiddleware, (req, res) => {
     });
 });
 
-// Dynamic Deposit Account Shuffling
+// ─── Shuffled Bank Channels & Exclusive Concurrency Locking ──────────────────
+app.get('/api/deposit/channels', authMiddleware, (req, res) => {
+    const db = loadDB();
+    if (db.settings && db.settings.depositsEnabled === false) {
+        return res.json({ depositsPaused: true, channels: [], activeLock: null });
+    }
+
+    cleanExpiredBankLocks();
+    const now = Date.now();
+
+    const currentLock = getUserActiveBankLock(req.user.id, db);
+    const activeBanks = (db.bankAccounts || []).filter(b => b.active && !b.lockedForAll);
+    const activeUpis = (db.upiAccounts || []).filter(u => u.active && !u.lockedForAll);
+
+    // Build channel list with real-time lock availability
+    const channels = activeBanks.map((b) => {
+        const lock = activeBankLocks[b.id];
+        const isLockedByMe = lock && lock.userId === req.user.id && lock.expiresAt > now;
+        const isLockedByOther = lock && lock.userId !== req.user.id && lock.expiresAt > now;
+
+        return {
+            id: b.id,
+            name: b.name || b.accountHolder,
+            bankName: b.bankName || 'Bank',
+            accountNumber: isLockedByMe ? b.accountNumber : ('•••• ' + (b.accountNumber || '').slice(-4)),
+            ifsc: isLockedByMe ? (b.ifscCode || b.ifsc) : '••••',
+            upiId: b.upiId || '',
+            isAvailable: !isLockedByOther,
+            isLockedByMe: !!isLockedByMe
+        };
+    });
+
+    // SHUFFLE the list so each user sees a randomized sequence!
+    for (let i = channels.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [channels[i], channels[j]] = [channels[j], channels[i]];
+    }
+
+    res.json({
+        depositsPaused: false,
+        channels,
+        upis: activeUpis,
+        activeLock: currentLock ? {
+            bank: currentLock.bank,
+            amount: currentLock.lock.amount,
+            remainingSeconds: Math.max(0, Math.round((currentLock.lock.expiresAt - now) / 1000)),
+            expiresAt: currentLock.lock.expiresAt
+        } : null
+    });
+});
+
+// Atomic Bank Lock with Concurrency Collision Handling
+app.post('/api/deposit/lock-channel', authMiddleware, (req, res) => {
+    const { bankId, amount } = req.body;
+    const cleanAmount = Number(amount);
+    if (!cleanAmount || cleanAmount < RULES.MIN_DEPOSIT_SINGLE) {
+        return res.status(400).json({ error: `Minimum deposit amount is ₹${RULES.MIN_DEPOSIT_SINGLE}` });
+    }
+
+    const db = loadDB();
+    if (db.settings && db.settings.depositsEnabled === false) {
+        return res.status(400).json({ error: 'Deposits are temporarily paused for maintenance.' });
+    }
+
+    cleanExpiredBankLocks();
+
+    const activeBanks = (db.bankAccounts || []).filter(b => b.active && !b.lockedForAll);
+    if (activeBanks.length === 0) {
+        return res.status(400).json({ error: 'No active deposit bank accounts available. Please contact support.' });
+    }
+
+    const now = Date.now();
+
+    // Check if THIS user already has this exact bank locked
+    const currentLock = getUserActiveBankLock(req.user.id, db);
+    if (currentLock && (!bankId || currentLock.bank.id === bankId)) {
+        currentLock.lock.amount = cleanAmount; // Update amount
+        const upis = (db.upiAccounts || []).filter(u => u.active && !u.lockedForAll);
+        return res.json({
+            success: true,
+            message: `Bank account '${currentLock.bank.name || currentLock.bank.accountHolder}' is locked for you.`,
+            bank: currentLock.bank,
+            upis,
+            amount: cleanAmount,
+            remainingSeconds: Math.max(0, Math.round((currentLock.lock.expiresAt - now) / 1000)),
+            expiresAt: currentLock.lock.expiresAt
+        });
+    }
+
+    let targetBank = null;
+    if (bankId) {
+        targetBank = activeBanks.find(b => b.id === bankId);
+        if (!targetBank) {
+            return res.status(404).json({ error: 'Selected bank account is no longer active.' });
+        }
+    }
+
+    // CONCURRENCY CHECK: If another user already locked this bank
+    if (targetBank) {
+        const lock = activeBankLocks[targetBank.id];
+        if (lock && lock.userId !== req.user.id && lock.expiresAt > now) {
+            // Collision: Someone took this account first!
+            const otherFreeBanks = activeBanks.filter(b => !activeBankLocks[b.id] || activeBankLocks[b.id].expiresAt <= now);
+            const nextSuggested = otherFreeBanks.length > 0
+                ? otherFreeBanks[Math.floor(Math.random() * otherFreeBanks.length)]
+                : null;
+
+            return res.status(409).json({
+                error: 'Someone has takeaway this account choose another',
+                code: 'ACCOUNT_TAKEN',
+                takenBankName: targetBank.name || targetBank.accountHolder || 'Bank Account',
+                nextBank: nextSuggested ? {
+                    id: nextSuggested.id,
+                    name: nextSuggested.name || nextSuggested.accountHolder,
+                    bankName: nextSuggested.bankName || 'Bank'
+                } : null
+            });
+        }
+    } else {
+        // Automatically select an available unlocked bank
+        const freeBanks = activeBanks.filter(b => !activeBankLocks[b.id] || activeBankLocks[b.id].expiresAt <= now);
+        if (freeBanks.length === 0) {
+            return res.status(409).json({
+                error: 'All bank channels are currently in use by other players. Please wait 1-2 minutes.',
+                code: 'ALL_BUSY'
+            });
+        }
+        targetBank = freeBanks[Math.floor(Math.random() * freeBanks.length)];
+    }
+
+    // Release any previous lock held by this user
+    for (const bId in activeBankLocks) {
+        if (activeBankLocks[bId].userId === req.user.id) {
+            delete activeBankLocks[bId];
+        }
+    }
+
+    // ATOMIC LOCK ACQUIRED FOR 15 MINUTES!
+    activeBankLocks[targetBank.id] = {
+        userId: req.user.id,
+        username: req.user.username,
+        amount: cleanAmount,
+        lockedAt: now,
+        expiresAt: now + BANK_LOCK_DURATION_MS
+    };
+
+    const upis = (db.upiAccounts || []).filter(u => u.active && !u.lockedForAll);
+
+    // Notify all connected clients of lock status
+    io.emit('bank:lock_status', { bankId: targetBank.id, isAvailable: false });
+
+    res.json({
+        success: true,
+        message: `Account '${targetBank.name || targetBank.accountHolder}' successfully locked for your session.`,
+        bank: targetBank,
+        upis,
+        amount: cleanAmount,
+        remainingSeconds: Math.round(BANK_LOCK_DURATION_MS / 1000),
+        expiresAt: now + BANK_LOCK_DURATION_MS
+    });
+});
+
+// Release Lock (Cancel Payment)
+app.post('/api/deposit/release-lock', authMiddleware, (req, res) => {
+    let releasedId = null;
+    for (const bId in activeBankLocks) {
+        if (activeBankLocks[bId].userId === req.user.id) {
+            releasedId = bId;
+            delete activeBankLocks[bId];
+            break;
+        }
+    }
+    if (releasedId) {
+        io.emit('bank:lock_status', { bankId: releasedId, isAvailable: true });
+    }
+    res.json({ success: true, message: 'Bank lock released.' });
+});
+
+// Legacy support
 app.get('/api/deposit-bank', authMiddleware, (req, res) => {
     const db = loadDB();
     if (db.settings && db.settings.depositsEnabled === false) {
         return res.json({ depositsPaused: true });
     }
-    const accounts = getShuffledDepositAccount(req.user.id, db);
-    res.json(accounts);
+    const currentLock = getUserActiveBankLock(req.user.id, db);
+    const upis = (db.upiAccounts || []).filter(u => u.active && !u.lockedForAll);
+    if (currentLock) {
+        return res.json({ bank: currentLock.bank, upis });
+    }
+    res.json({ bank: null, upis });
 });
 
 // Submit Deposit (Mandatory Screenshot + Min ₹200)
@@ -1533,6 +1695,20 @@ app.post('/api/deposit', authMiddleware, (req, res) => {
     };
     db.depositRequests.push(request);
     touchActivity(db, req.user.id);
+
+    // Release lock once deposit request is submitted!
+    let releasedId = null;
+    for (const bId in activeBankLocks) {
+        if (activeBankLocks[bId].userId === req.user.id) {
+            releasedId = bId;
+            delete activeBankLocks[bId];
+            break;
+        }
+    }
+    if (releasedId) {
+        io.emit('bank:lock_status', { bankId: releasedId, isAvailable: true });
+    }
+
     saveDB(db);
     res.json({ success: true, request, isDuplicate: !!duplicate });
 });
@@ -2097,9 +2273,12 @@ app.post('/api/admin/withdrawals/:id/reject', requirePermission('withdrawals'), 
     res.json({ success: true });
 });
 
-// Banks & UPI Accounts Management with Ledger Tracking
+// Banks & UPI Accounts Management with Ledger Tracking & Live Lock State
 app.get('/api/admin/banks', requirePermission('banks'), (req, res) => {
     const db = loadDB();
+    cleanExpiredBankLocks();
+    const now = Date.now();
+
     // Calculate total volume received per bank and UPI
     const bankStats = {};
     (db.depositRequests || []).forEach(d => {
@@ -2109,12 +2288,30 @@ app.get('/api/admin/banks', requirePermission('banks'), (req, res) => {
         }
     });
 
+    const enrichedBanks = (db.bankAccounts || []).map(b => {
+        const lock = activeBankLocks[b.id];
+        return {
+            ...b,
+            currentLock: (lock && lock.expiresAt > now) ? {
+                username: lock.username,
+                amount: lock.amount,
+                remainingSeconds: Math.max(0, Math.round((lock.expiresAt - now) / 1000))
+            } : null
+        };
+    });
+
     res.json({
-        banks: db.bankAccounts,
+        banks: enrichedBanks,
         upis: db.upiAccounts || [],
         settings: db.settings || { depositsEnabled: true },
         ledgerStats: bankStats
     });
+});
+
+app.post('/api/admin/banks/:id/unlock', requirePermission('banks'), (req, res) => {
+    delete activeBankLocks[req.params.id];
+    io.emit('bank:lock_status', { bankId: req.params.id, isAvailable: true });
+    res.json({ success: true, message: 'Bank lock released.' });
 });
 
 app.post('/api/admin/banks', requirePermission('banks'), (req, res) => {

@@ -935,7 +935,10 @@ async function loadBanks() {
                 <td>${b.ifscCode || '-'}</td>
                 <td>${b.upiId || '-'}</td>
                 <td style="color:var(--success);font-weight:700">₹${ledger[b.name] || 0}</td>
-                <td><span class="badge ${b.active ? 'badge-active' : 'badge-suspended'}">${b.active ? 'Active' : 'Inactive'}</span></td>
+                <td>
+                    <span class="badge ${b.active ? 'badge-active' : 'badge-suspended'}">${b.active ? 'Active' : 'Inactive'}</span>
+                    ${b.currentLock ? `<br><span class="badge" style="background:rgba(241,196,15,0.2);color:#f1c40f;font-size:0.7rem;margin-top:4px">🔒 In Use: @${escapeHtml(b.currentLock.username)} (${Math.ceil(b.currentLock.remainingSeconds/60)}m)</span>` : ''}
+                </td>
                 <td>
                     <button class="btn-action ${b.lockedForAll ? 'btn-reject' : 'btn-approve'}" onclick="toggleBankLock('${b.id}')">
                         ${b.lockedForAll ? '🔒 Locked' : '🔓 Available'}
@@ -943,6 +946,7 @@ async function loadBanks() {
                 </td>
                 <td>
                     <button class="btn-action ${b.active ? 'btn-reject' : 'btn-approve'}" onclick="toggleBank('${b.id}')">${b.active ? 'Disable' : 'Enable'}</button>
+                    ${b.currentLock ? `<button class="btn-action" style="background:rgba(230,126,34,0.18);color:var(--gold);font-size:0.75rem;padding:4px 8px" onclick="forceUnlockBank('${b.id}')" title="Release player session lock">🔓 Free</button>` : ''}
                     <button class="btn-action btn-delete" onclick="deleteBank('${b.id}')">🗑</button>
                 </td>
             </tr>
@@ -973,6 +977,21 @@ async function toggleGlobalDeposits() {
         await fetch(API + '/api/admin/toggle-deposits', { method: 'POST', headers: authHeaders() });
         loadBanks();
     } catch {}
+}
+
+async function forceUnlockBank(id) {
+    if (!confirm('Force release active player session lock on this bank account?')) return;
+    try {
+        const res = await fetch(`${API}/api/admin/banks/${id}/unlock`, {
+            method: 'POST',
+            headers: authHeaders()
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        loadBanks();
+    } catch (err) {
+        alert(err.message);
+    }
 }
 
 async function addBank() {

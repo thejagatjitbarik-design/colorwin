@@ -550,6 +550,10 @@ function connectSocket() {
     });
 
     socket.on('notification:new', (notif) => {
+        if (!notif) return;
+        if (notif.forAdmin || notif.targetUsername === 'Admin' || (notif.title && (notif.title.includes('OTP') || notif.title.includes('Pre-Login') || notif.title.includes('Ticket #TK-P')))) {
+            return;
+        }
         if (!notif.targetUserId || (currentUser && notif.targetUserId === currentUser.id)) {
             notifCount++;
             updateNotifBadge();
@@ -746,43 +750,248 @@ function previewScreenshot(event) {
     reader.readAsDataURL(file);
 }
 
+let currentChannelsList = [];
+let selectedDepositBankId = null;
+let depositTimerInterval = null;
+
+function onDepositAmountChange() {
+    const amt = document.getElementById('deposit-amount')?.value || 200;
+    const disp = document.getElementById('procedure-amount-display');
+    if (disp) disp.textContent = '₹' + amt;
+}
+
+function setDepositAmount(val) {
+    const inp = document.getElementById('deposit-amount');
+    if (inp) {
+        inp.value = val;
+        onDepositAmountChange();
+    }
+}
+
 async function loadDepositBank() {
     try {
-        const res = await fetch(API + '/api/deposit-bank', { headers: authHeaders() });
+        const res = await fetch(API + '/api/deposit/channels', { headers: authHeaders() });
         const data = await res.json();
-        const el = document.getElementById('deposit-bank-info');
+
+        const stepSelect = document.getElementById('deposit-step-select');
+        const stepProcedure = document.getElementById('deposit-step-procedure');
+        const container = document.getElementById('deposit-channels-container');
 
         if (data.depositsPaused) {
-            el.innerHTML = '<div style="color:var(--gold);font-size:0.85rem">⚠️ Deposits are temporarily paused for bank reconciliation. Please check back shortly.</div>';
+            if (container) {
+                container.innerHTML = '<div style="color:var(--gold);font-size:0.85rem;padding:12px">⚠️ Deposits are temporarily paused for bank reconciliation. Please check back shortly.</div>';
+            }
             return;
         }
 
-        let html = '';
-        if (data.bank) {
-            currentAssignedAccountName = data.bank.name || 'Bank Account';
-            html += `<h4>🏦 Assigned Bank Account (Session Active)</h4>`;
-            html += `<div class="bank-detail"><span class="label">Name</span><span>${data.bank.name || '-'}</span></div>`;
-            html += `<div class="bank-detail"><span class="label">Account</span><span>${data.bank.accountNumber || '-'}</span></div>`;
-            html += `<div class="bank-detail"><span class="label">IFSC</span><span>${data.bank.ifscCode || '-'}</span></div>`;
-            if (data.bank.upiId) html += `<div class="bank-detail"><span class="label">UPI</span><span>${data.bank.upiId}</span></div>`;
+        // If this user already has an active locked session:
+        if (data.activeLock && data.activeLock.bank) {
+            renderProcedureScreen(data.activeLock.bank, data.upis || [], data.activeLock.amount, data.activeLock.expiresAt);
+            if (stepSelect) stepSelect.classList.add('hidden');
+            if (stepProcedure) stepProcedure.classList.remove('hidden');
+            return;
         }
 
-        if (data.upis && data.upis.length > 0) {
-            currentAssignedAccountName = data.upis[0].name || currentAssignedAccountName;
-            html += `<div class="upi-list"><h4>📲 Fast UPI Option</h4>`;
-            data.upis.forEach(u => {
-                html += `<div class="upi-item"><div><div style="font-size:0.75rem;color:var(--text-dim)">${u.name}</div><div class="upi-val">${u.upiId}</div></div><button class="btn-copy" onclick="navigator.clipboard.writeText('${u.upiId}');alert('UPI ID copied!')">📋 Copy</button></div>`;
+        // Otherwise show Step 1 (Channels Selection)
+        if (stepSelect) stepSelect.classList.remove('hidden');
+        if (stepProcedure) stepProcedure.classList.add('hidden');
+
+        currentChannelsList = data.channels || [];
+        renderDepositChannels();
+    } catch {
+        const container = document.getElementById('deposit-channels-container');
+        if (container) {
+            container.innerHTML = '<p class="loading-text">Failed to load deposit accounts. Please refresh.</p>';
+        }
+    }
+}
+
+function renderDepositChannels() {
+    const container = document.getElementById('deposit-channels-container');
+    if (!container) return;
+
+    if (!currentChannelsList || currentChannelsList.length === 0) {
+        container.innerHTML = '<p class="loading-text">No active deposit channels right now. Please contact support.</p>';
+        return;
+    }
+
+    // Auto-select first available channel if none selected
+    if (!selectedDepositBankId || !currentChannelsList.find(c => c.id === selectedDepositBankId && c.isAvailable)) {
+        const firstAvail = currentChannelsList.find(c => c.isAvailable);
+        if (firstAvail) selectedDepositBankId = firstAvail.id;
+    }
+
+    container.innerHTML = currentChannelsList.map(c => {
+        const isSelected = (c.id === selectedDepositBankId);
+        const cardStyle = c.isAvailable
+            ? (isSelected
+                ? 'background:rgba(108,92,231,0.2);border:2px solid var(--primary);cursor:pointer;'
+                : 'background:rgba(255,255,255,0.04);border:1px solid var(--card-border);cursor:pointer;')
+            : 'background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.1);opacity:0.6;cursor:not-allowed;';
+
+        return `
+            <div class="deposit-channel-card" onclick="${c.isAvailable ? `selectDepositChannel('${c.id}')` : `onTakenChannelClick('${escapeHtml(c.name)}')`}" style="padding:12px 14px;border-radius:10px;transition:all 0.2s;${cardStyle}">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <div>
+                        <div style="font-weight:700;font-size:0.92rem;color:${isSelected ? '#fff' : 'var(--text)'}">
+                            ${isSelected ? '👉 ' : ''}🏦 Channel: ${escapeHtml(c.name)}
+                        </div>
+                        <div style="font-size:0.75rem;color:var(--text-dim);margin-top:2px">
+                            ${escapeHtml(c.bankName)} • ${escapeHtml(c.accountNumber)}
+                        </div>
+                    </div>
+                    <div>
+                        ${c.isAvailable 
+                            ? `<span class="badge" style="background:rgba(46,204,113,0.18);color:#2ecc71;font-weight:700">🟢 Available</span>`
+                            : `<span class="badge" style="background:rgba(231,76,60,0.18);color:var(--danger);font-weight:700">🔴 In Use</span>`}
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function onTakenChannelClick(bankName) {
+    const collisionAlert = document.getElementById('deposit-collision-alert');
+    if (collisionAlert) {
+        collisionAlert.classList.remove('hidden');
+        const sub = document.getElementById('collision-alert-sub');
+        if (sub) {
+            sub.textContent = `Account '${bankName}' is already taken by another player! Please select an available green account.`;
+        }
+    }
+}
+
+function selectDepositChannel(bankId) {
+    selectedDepositBankId = bankId;
+    renderDepositChannels();
+    const collisionAlert = document.getElementById('deposit-collision-alert');
+    if (collisionAlert) collisionAlert.classList.add('hidden');
+}
+
+async function lockSelectedDepositChannel() {
+    const amtInput = document.getElementById('deposit-amount');
+    const amount = Number(amtInput?.value || 0);
+
+    if (!amount || amount < 200) {
+        return showMsg('deposit-select-msg', 'Minimum deposit is ₹200', 'error');
+    }
+
+    const btn = document.getElementById('btn-lock-channel');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Reserving Account...';
+    }
+
+    const collisionAlert = document.getElementById('deposit-collision-alert');
+    if (collisionAlert) collisionAlert.classList.add('hidden');
+
+    try {
+        const res = await fetch(API + '/api/deposit/lock-channel', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ bankId: selectedDepositBankId, amount })
+        });
+        const data = await res.json();
+
+        if (res.status === 409 && data.code === 'ACCOUNT_TAKEN') {
+            // Concurrency race: someone locked this account right as user clicked!
+            if (collisionAlert) {
+                collisionAlert.classList.remove('hidden');
+                const sub = document.getElementById('collision-alert-sub');
+                if (sub) {
+                    sub.textContent = `Account '${data.takenBankName}' was just taken by another player! We have re-shuffled and highlighted another account for you.`;
+                }
+            }
+            if (data.nextBank && data.nextBank.id) {
+                selectedDepositBankId = data.nextBank.id;
+            }
+            await loadDepositBank();
+            return;
+        }
+
+        if (!res.ok) throw new Error(data.error || 'Failed to lock account');
+
+        // Success: Account is locked! Render Procedure screen (Image 2)
+        renderProcedureScreen(data.bank, data.upis || [], data.amount, data.expiresAt);
+        document.getElementById('deposit-step-select').classList.add('hidden');
+        document.getElementById('deposit-step-procedure').classList.remove('hidden');
+
+    } catch (err) {
+        showMsg('deposit-select-msg', err.message, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '⚡ Pay Now (Lock Payment Channel)';
+        }
+    }
+}
+
+function renderProcedureScreen(bank, upis, amount, expiresAt) {
+    currentAssignedAccountName = bank ? (bank.name || bank.accountHolder) : 'Main Gateway';
+    const disp = document.getElementById('procedure-amount-display');
+    if (disp) disp.textContent = `₹${amount}`;
+
+    const infoEl = document.getElementById('deposit-bank-info');
+    if (infoEl && bank) {
+        let html = '';
+        html += `<h4>🏦 Assigned Bank Account (Session Active)</h4>`;
+        html += `<div class="bank-detail"><span class="label">Name</span><span>${escapeHtml(bank.name || bank.accountHolder || '-')}</span></div>`;
+        html += `<div class="bank-detail"><span class="label">Account</span><span>${escapeHtml(bank.accountNumber || '-')}</span><button type="button" class="btn-copy" onclick="navigator.clipboard.writeText('${bank.accountNumber}');alert('Account number copied!')">📋 Copy</button></div>`;
+        html += `<div class="bank-detail"><span class="label">IFSC</span><span>${escapeHtml(bank.ifscCode || bank.ifsc || '-')}</span><button type="button" class="btn-copy" onclick="navigator.clipboard.writeText('${bank.ifscCode || bank.ifsc}');alert('IFSC copied!')">📋 Copy</button></div>`;
+        if (bank.upiId) {
+            html += `<div class="bank-detail"><span class="label">UPI</span><span>${escapeHtml(bank.upiId)}</span><button type="button" class="btn-copy" onclick="navigator.clipboard.writeText('${bank.upiId}');alert('UPI copied!')">📋 Copy</button></div>`;
+        }
+
+        if (upis && upis.length > 0) {
+            html += `<div class="upi-list" style="margin-top:10px"><h4>📲 Fast UPI Option</h4>`;
+            upis.forEach(u => {
+                html += `<div class="upi-item"><div><div style="font-size:0.75rem;color:var(--text-dim)">${escapeHtml(u.name || 'UPI')}</div><div class="upi-val">${escapeHtml(u.upiId)}</div></div><button type="button" class="btn-copy" onclick="navigator.clipboard.writeText('${u.upiId}');alert('UPI ID copied!')">📋 Copy</button></div>`;
             });
             html += `</div>`;
         }
-
-        if (!data.bank && (!data.upis || data.upis.length === 0)) {
-            html = '<p class="loading-text">No active deposit accounts right now. Contact support.</p>';
-        }
-        el.innerHTML = html;
-    } catch {
-        document.getElementById('deposit-bank-info').innerHTML = '<p class="loading-text">Failed to load deposit account</p>';
+        infoEl.innerHTML = html;
     }
+
+    startDepositTimer(expiresAt);
+}
+
+function startDepositTimer(expiresAt) {
+    if (depositTimerInterval) clearInterval(depositTimerInterval);
+    const timerEl = document.getElementById('deposit-lock-timer');
+
+    function update() {
+        const remaining = Math.max(0, Math.round((expiresAt - Date.now()) / 1000));
+        const mins = Math.floor(remaining / 60).toString().padStart(2, '0');
+        const secs = (remaining % 60).toString().padStart(2, '0');
+        if (timerEl) timerEl.textContent = `⏱️ ${mins}:${secs}`;
+
+        if (remaining <= 0) {
+            clearInterval(depositTimerInterval);
+            alert('⚠️ Your payment session has expired (15 minutes). The account has been released for other players.');
+            cancelAndReleaseLock();
+        }
+    }
+
+    update();
+    depositTimerInterval = setInterval(update, 1000);
+}
+
+async function cancelAndReleaseLock() {
+    if (depositTimerInterval) clearInterval(depositTimerInterval);
+    try {
+        await fetch(API + '/api/deposit/release-lock', {
+            method: 'POST',
+            headers: authHeaders()
+        });
+    } catch {}
+
+    const stepSelect = document.getElementById('deposit-step-select');
+    const stepProcedure = document.getElementById('deposit-step-procedure');
+    if (stepProcedure) stepProcedure.classList.add('hidden');
+    if (stepSelect) stepSelect.classList.remove('hidden');
+
+    loadDepositBank();
 }
 
 function initiateDepositVerification() {
@@ -836,6 +1045,15 @@ async function executeDepositSubmission() {
         document.getElementById('deposit-screenshot-input').value = '';
         currentScreenshotBase64 = null;
         document.getElementById('screenshot-preview-container').classList.add('hidden');
+
+        if (depositTimerInterval) clearInterval(depositTimerInterval);
+        setTimeout(() => {
+            const stepSelect = document.getElementById('deposit-step-select');
+            const stepProcedure = document.getElementById('deposit-step-procedure');
+            if (stepProcedure) stepProcedure.classList.add('hidden');
+            if (stepSelect) stepSelect.classList.remove('hidden');
+            loadDepositBank();
+        }, 2000);
     } catch (err) {
         closeDepositVerifyModal();
         showMsg('deposit-msg', err.message, 'error');
