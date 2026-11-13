@@ -191,15 +191,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Auth toggle
     const toggleAuth = document.getElementById('toggle-auth');
     if (toggleAuth) {
-        toggleAuth.addEventListener('click', (e) => {
-            e.preventDefault();
-            isRegister = !isRegister;
-            document.getElementById('auth-btn').textContent = isRegister ? 'Register & Accept Terms' : 'Login';
-            document.getElementById('register-extras').classList.toggle('hidden', !isRegister);
-            document.getElementById('forgot-link-box').classList.toggle('hidden', isRegister);
-            toggleAuth.textContent = isRegister ? 'Login' : 'Register';
-            document.querySelector('.auth-toggle').firstChild.textContent = isRegister ? 'Already have an account? ' : "Don't have an account? ";
-        });
+        toggleAuth.addEventListener('click', toggleAuthMode);
     }
 
     // Terms & Conditions link
@@ -223,63 +215,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Auth form submit
     const authForm = document.getElementById('auth-form');
     if (authForm) {
-        authForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const username = document.getElementById('auth-username').value.trim();
-            const password = document.getElementById('auth-password').value;
-            const errEl = document.getElementById('auth-error');
-            errEl.classList.add('hidden');
-
-            if (isRegister) {
-                const phone = document.getElementById('auth-phone')?.value.trim() || '';
-                if (!phone) {
-                    errEl.textContent = 'Mobile number is mandatory. Duplicate accounts are not allowed.';
-                    errEl.classList.remove('hidden');
-                    return;
-                }
-                if (!/^[0-9]{10}$/.test(phone)) {
-                    errEl.textContent = 'Please enter a valid 10-digit mobile number (numbers only).';
-                    errEl.classList.remove('hidden');
-                    return;
-                }
-                const tcCheckbox = document.getElementById('auth-tc');
-                if (!tcCheckbox || !tcCheckbox.checked) {
-                    errEl.textContent = 'Please accept the Terms & Conditions before registering.';
-                    errEl.classList.remove('hidden');
-                    return;
-                }
-            }
-
-            const phone = document.getElementById('auth-phone')?.value.trim() || '';
-            const referralCode = document.getElementById('auth-referral')?.value.trim() || '';
-
-            try {
-                const endpoint = isRegister ? '/api/register' : '/api/login';
-                const body = isRegister ? { username, password, referralCode, phone } : { username, password };
-                const res = await fetch(API + endpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body)
-                });
-                const data = await res.json();
-                if (!res.ok) {
-                    if (data.suspended) {
-                        document.getElementById('auth-overlay').classList.add('hidden');
-                        document.getElementById('suspended-overlay').classList.remove('hidden');
-                        return;
-                    }
-                    throw new Error(data.error || 'Authentication failed');
-                }
-                token = data.token;
-                localStorage.setItem('cw_token', token);
-                currentUser = data.user;
-                document.getElementById('auth-overlay').classList.add('hidden');
-                initApp();
-            } catch (err) {
-                errEl.textContent = err.message;
-                errEl.classList.remove('hidden');
-            }
-        });
+        authForm.addEventListener('submit', submitAuth);
     }
 
     if (token) {
@@ -287,6 +223,123 @@ document.addEventListener('DOMContentLoaded', () => {
         initApp();
     }
 });
+
+function toggleAuthMode(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    isRegister = !isRegister;
+    const errEl = document.getElementById('auth-error');
+    if (errEl) {
+        errEl.classList.add('hidden');
+        errEl.textContent = '';
+    }
+    const authBtn = document.getElementById('auth-btn');
+    if (authBtn) {
+        authBtn.disabled = false;
+        authBtn.textContent = isRegister ? 'Register & Accept Terms' : 'Login';
+    }
+    const regExtras = document.getElementById('register-extras');
+    if (regExtras) regExtras.classList.toggle('hidden', !isRegister);
+    const forgotBox = document.getElementById('forgot-link-box');
+    if (forgotBox) forgotBox.classList.toggle('hidden', isRegister);
+    const toggleLink = document.getElementById('toggle-auth');
+    if (toggleLink) toggleLink.textContent = isRegister ? 'Login' : 'Register';
+    const toggleLabel = document.getElementById('auth-toggle-label');
+    if (toggleLabel) toggleLabel.textContent = isRegister ? 'Already have an account? ' : "Don't have an account? ";
+}
+
+async function submitAuth(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const username = document.getElementById('auth-username')?.value.trim();
+    const password = document.getElementById('auth-password')?.value;
+    const errEl = document.getElementById('auth-error');
+    if (errEl) {
+        errEl.classList.add('hidden');
+        errEl.textContent = '';
+    }
+
+    if (!username) {
+        if (errEl) {
+            errEl.textContent = '⚠️ Please enter your Username / User ID.';
+            errEl.classList.remove('hidden');
+        }
+        return;
+    }
+    if (!password) {
+        if (errEl) {
+            errEl.textContent = '⚠️ Please enter your Password.';
+            errEl.classList.remove('hidden');
+        }
+        return;
+    }
+
+    if (isRegister) {
+        const phone = document.getElementById('auth-phone')?.value.trim() || '';
+        if (!phone) {
+            if (errEl) {
+                errEl.textContent = '⚠️ 10-digit Mobile number is mandatory. Duplicate accounts are not allowed.';
+                errEl.classList.remove('hidden');
+            }
+            return;
+        }
+        if (!/^[0-9]{10}$/.test(phone)) {
+            if (errEl) {
+                errEl.textContent = '⚠️ Please enter a valid 10-digit mobile number (numbers only).';
+                errEl.classList.remove('hidden');
+            }
+            return;
+        }
+        const tcCheckbox = document.getElementById('auth-tc');
+        if (!tcCheckbox || !tcCheckbox.checked) {
+            if (errEl) {
+                errEl.textContent = '⚠️ Please accept the Terms & Conditions before registering.';
+                errEl.classList.remove('hidden');
+            }
+            return;
+        }
+    }
+
+    const phone = document.getElementById('auth-phone')?.value.trim() || '';
+    const referralCode = document.getElementById('auth-referral')?.value.trim() || '';
+    const authBtn = document.getElementById('auth-btn');
+    if (authBtn) {
+        authBtn.disabled = true;
+        authBtn.textContent = '⏳ Checking credentials...';
+    }
+
+    try {
+        const endpoint = isRegister ? '/api/register' : '/api/login';
+        const body = isRegister ? { username, password, referralCode, phone } : { username, password };
+        const res = await fetch(API + endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            if (data.suspended) {
+                document.getElementById('auth-overlay').classList.add('hidden');
+                document.getElementById('suspended-overlay').classList.remove('hidden');
+                return;
+            }
+            throw new Error(data.error || 'Authentication failed');
+        }
+        token = data.token;
+        localStorage.setItem('cw_token', token);
+        currentUser = data.user;
+        document.getElementById('auth-overlay').classList.add('hidden');
+        initApp();
+    } catch (err) {
+        if (errEl) {
+            errEl.textContent = err.message;
+            errEl.classList.remove('hidden');
+        }
+    } finally {
+        if (authBtn) {
+            authBtn.disabled = false;
+            authBtn.textContent = isRegister ? 'Register & Accept Terms' : 'Login';
+        }
+    }
+}
 
 // ─── App Init ──────────────────────────────────────────────────────────────────
 async function initApp() {
@@ -1414,5 +1467,68 @@ async function submitTicketReplyUser() {
         loadMyTickets();
     } catch (err) {
         showMsg('vt-reply-msg', err.message, 'error');
+    }
+}
+
+// ─── Public Pre-Login Ticket Functions ─────────────────────────────────────────
+function openPublicTicketModal(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const uInput = document.getElementById('ptk-username');
+    const pInput = document.getElementById('ptk-phone');
+    const mInput = document.getElementById('ptk-message');
+    const authUser = document.getElementById('auth-username')?.value.trim();
+
+    if (uInput) uInput.value = authUser || '';
+    if (pInput) pInput.value = '';
+    if (mInput) mInput.value = '';
+
+    const msg = document.getElementById('ptk-msg');
+    if (msg) msg.classList.add('hidden');
+    const successBox = document.getElementById('ptk-success-box');
+    if (successBox) successBox.classList.add('hidden');
+
+    document.getElementById('public-ticket-modal').classList.remove('hidden');
+}
+
+function closePublicTicketModal() {
+    document.getElementById('public-ticket-modal').classList.add('hidden');
+}
+
+async function submitPublicTicket() {
+    const username = document.getElementById('ptk-username').value.trim();
+    const phone = document.getElementById('ptk-phone').value.trim();
+    const reason = document.getElementById('ptk-reason').value;
+    const message = document.getElementById('ptk-message').value.trim();
+
+    if (!username) return showMsg('ptk-msg', 'Please enter your Username / User ID', 'error');
+    if (!phone) return showMsg('ptk-msg', 'Please enter your registered 10-digit Mobile number', 'error');
+    if (!/^[0-9]{10}$/.test(phone)) return showMsg('ptk-msg', 'Mobile number must be exactly 10 digits', 'error');
+
+    const btn = document.getElementById('btn-submit-ptk');
+    btn.disabled = true;
+    btn.textContent = '⏳ Submitting Ticket...';
+
+    try {
+        const res = await fetch(API + '/api/tickets/public-request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, phone, reason, message })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        document.getElementById('ptk-created-num').textContent = `#${data.ticketNumber}`;
+        const waBtn = document.getElementById('ptk-wa-btn');
+        if (waBtn && data.waLink) {
+            waBtn.href = data.waLink;
+        }
+
+        document.getElementById('ptk-success-box').classList.remove('hidden');
+        showMsg('ptk-msg', 'Ticket created! Support has been notified.', 'success');
+    } catch (err) {
+        showMsg('ptk-msg', err.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '🚀 Submit Support Ticket';
     }
 }

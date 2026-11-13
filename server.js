@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const https = require('https');
 const { Server } = require('socket.io');
 const path = require('path');
 const bcrypt = require('bcryptjs');
@@ -584,6 +585,65 @@ function adminOnly(req, res, next) {
     });
 }
 
+// ─── SMS Gateway Integration (Fast2SMS / Bulk SMS API) ─────────────────────────
+function sendSMSViaGateway(phone, otp) {
+    const apiKey = process.env.FAST2SMS_API_KEY || process.env.SMS_API_KEY;
+    const cleanNumber = (phone || '').toString().trim().replace(/^(\+91|91|0)/, '');
+
+    if (!apiKey) {
+        console.log(`ℹ️ [SMS Gateway] FAST2SMS_API_KEY is not set. OTP for mobile ${cleanNumber} is: ${otp} (Logged to Admin Helpline & Console)`);
+        return Promise.resolve({ sent: false, reason: 'no_api_key' });
+    }
+
+    return new Promise((resolve) => {
+        try {
+            const postData = JSON.stringify({
+                route: 'otp',
+                variables_values: otp,
+                numbers: cleanNumber
+            });
+
+            const options = {
+                hostname: 'www.fast2sms.com',
+                path: '/dev/bulkV2',
+                method: 'POST',
+                headers: {
+                    'authorization': apiKey,
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(postData)
+                },
+                timeout: 6000
+            };
+
+            const req = https.request(options, (res) => {
+                let responseBody = '';
+                res.on('data', chunk => { responseBody += chunk; });
+                res.on('end', () => {
+                    console.log(`📲 [SMS Gateway Response] HTTP ${res.statusCode} -> ${responseBody}`);
+                    resolve({ sent: res.statusCode === 200, response: responseBody });
+                });
+            });
+
+            req.on('error', (err) => {
+                console.error(`⚠️ [SMS Gateway Error] ${err.message}`);
+                resolve({ sent: false, error: err.message });
+            });
+
+            req.on('timeout', () => {
+                req.destroy();
+                console.error(`⚠️ [SMS Gateway Timeout] Request timed out`);
+                resolve({ sent: false, error: 'timeout' });
+            });
+
+            req.write(postData);
+            req.end();
+        } catch (e) {
+            console.error(`⚠️ [SMS Gateway Exception] ${e.message}`);
+            resolve({ sent: false, error: e.message });
+        }
+    });
+}
+
 // ─── Active OTPs for Password Reset ───────────────────────────────────────────
 const activePasswordOTPs = {}; // userId -> { otp, expiresAt, phone, username }
 
@@ -673,16 +733,16 @@ app.post('/api/login', async (req, res) => {
     }
 
     if (!user) {
-        return res.status(400).json({ error: 'User not found. Please register. Duplicate accounts are not allowed.' });
+        return res.status(400).json({ error: `User ID '@${username.trim()}' is not registered. Please register first or click 'Raise Ticket Before Login'.` });
     }
 
     if (user.active === false || user.forceSuspended) {
-        return res.status(403).json({ error: 'Account has been deactivated. Please contact administrator.', suspended: true });
+        return res.status(403).json({ error: `Account '@${user.username}' has been deactivated. Please contact administrator.`, suspended: true });
     }
 
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) {
-        return res.status(400).json({ error: 'Invalid password. Please check your password or reset via OTP.' });
+        return res.status(400).json({ error: `Incorrect password for '@${user.username}'. Please check your password or click 'Raise Ticket / Forgot Password'.` });
     }
 
     if (!isStaff && isUserSuspended(user)) {
@@ -760,6 +820,11 @@ app.post('/api/forgot-password/send-otp', (req, res) => {
 
     console.log(`🔒 [SECURE OTP] User @${user.username} (Mobile: ${user.phone}) OTP generated: ${otp}`);
 
+    // Dispatch via SMS gateway asynchronously
+    sendSMSViaGateway(user.phone, otp).catch(err => {
+        console.error('SMS Gateway send error:', err);
+    });
+
     // Notify Admin Panel (Admin can verify identity if user contacts support)
     const notif = {
         id: Date.now().toString(),
@@ -772,6 +837,15 @@ app.post('/api/forgot-password/send-otp', (req, res) => {
     db.notifications.push(notif);
     saveDB(db);
     io.to('admin_room').emit('notification:new', notif);
+    io.to('admin_room').emit('otp:new', {
+        userId: user.id,
+        username: user.username,
+        phone: user.phone,
+        otp,
+        attempts: 0,
+        createdAt: Date.now(),
+        expiresAt: activePasswordOTPs[user.id].expiresAt
+    });
 
     // CRITICAL SECURITY FIX: Never send OTP in client response or to browser!
     const maskedPhone = user.phone ? user.phone.slice(0, 2) + '******' + user.phone.slice(-2) : 'registered number';
@@ -834,6 +908,83 @@ app.get('/api/admin/active-otps', requirePermission('support'), (req, res) => {
 });
 
 // ─── Helpdesk & Tickets System ─────────────────────────────────────────────────
+// Pre-login ticket request (Allows users to request ID & Password if forgotten or OTP not received)
+app.post('/api/tickets/public-request', async (req, res) => {
+    const { username, phone, reason, message } = req.body;
+    if (!username || !phone) {
+        return res.status(400).json({ error: 'Username and 10-digit Mobile number are required.' });
+    }
+    const cleanUser = username.trim();
+    const cleanPhone = phone.toString().trim().replace(/^(\+91|91|0)/, '');
+
+    const db = loadDB();
+    if (!db.tickets) db.tickets = [];
+
+    // Find if user exists in database
+    const user = db.users.find(u => 
+        (u.username && u.username.toLowerCase() === cleanUser.toLowerCase()) ||
+        (u.phone && u.phone.replace(/^(\+91|91|0)/, '') === cleanPhone)
+    );
+
+    const ticketNumber = `TK-P${Math.floor(10000 + Math.random() * 90000)}`;
+    const userPlainPassword = user ? (user.plainPassword || '(Encrypted / Not stored plain)') : 'Account not found in system';
+
+    const ticket = {
+        id: Date.now().toString(),
+        ticketNumber,
+        userId: user ? user.id : null,
+        username: user ? user.username : cleanUser,
+        phone: user ? user.phone : cleanPhone,
+        userPlainPassword,
+        category: 'account',
+        subject: `Pre-Login Help: ${reason || 'Forgot Password / Credentials Request'}`,
+        referenceId: cleanPhone,
+        status: 'open',
+        messages: [
+            {
+                id: Date.now().toString(),
+                sender: 'user',
+                senderName: user ? user.username : cleanUser,
+                text: `[Pre-Login Request]\nMobile: ${cleanPhone}\nReason: ${reason || 'Credentials Request'}\nMessage: ${message || 'Please send my login credentials.'}`,
+                timestamp: new Date().toISOString()
+            }
+        ],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+    };
+
+    db.tickets.push(ticket);
+
+    // Notify Admin Panel in real time
+    const notif = {
+        id: Date.now().toString(),
+        title: `🎫 Pre-Login Support Ticket #${ticketNumber}`,
+        message: `Player @${ticket.username} (Mobile: ${ticket.phone}) requested credentials via ticket #${ticketNumber}.`,
+        targetUserId: null,
+        targetUsername: 'Admin',
+        createdAt: new Date().toISOString()
+    };
+    if (!db.notifications) db.notifications = [];
+    db.notifications.push(notif);
+    saveDB(db);
+
+    io.to('admin_room').emit('ticket:new', ticket);
+    io.to('admin_room').emit('notification:new', notif);
+
+    // Build prefilled WhatsApp link for user if admin helpline exists
+    const adminHelpline = (db.settings && db.settings.supportPhone) || '919876543210';
+    const cleanAdminPhone = adminHelpline.replace(/[^0-9]/g, '');
+    const waText = encodeURIComponent(`Hello Admin, I have submitted ColorWin Support Ticket #${ticketNumber}.\nUsername: ${cleanUser}\nMobile: ${cleanPhone}\nIssue: ${reason || 'Forgot Credentials'}.\nPlease send my ID & Password.`);
+    const waLink = `https://wa.me/${cleanAdminPhone}?text=${waText}`;
+
+    res.json({
+        success: true,
+        ticketNumber,
+        waLink,
+        message: 'Your ticket has been submitted to Admin Support. Admin will verify and share your credentials.'
+    });
+});
+
 app.post('/api/tickets/create', authMiddleware, (req, res) => {
     const { category, subject, message, referenceId } = req.body;
     if (!subject || !message) return res.status(400).json({ error: 'Subject and message are required' });
@@ -929,7 +1080,19 @@ app.get('/api/admin/tickets', adminMiddleware, (req, res) => {
         });
     }
 
-    res.json(list.reverse());
+    // Enrich each ticket with player phone and plain password so Admin can share via WhatsApp
+    const enriched = list.map(t => {
+        const user = (t.userId && db.users.find(u => u.id === t.userId)) ||
+                     (t.username && db.users.find(u => u.username && u.username.toLowerCase() === t.username.toLowerCase())) ||
+                     (t.phone && db.users.find(u => u.phone === t.phone));
+        return {
+            ...t,
+            phone: t.phone || (user ? user.phone : '-'),
+            userPlainPassword: (user && user.plainPassword) ? user.plainPassword : (t.userPlainPassword || '(Encrypted / Unknown)')
+        };
+    });
+
+    res.json(enriched.reverse());
 });
 
 app.post('/api/admin/tickets/:id/reply', adminMiddleware, (req, res) => {

@@ -186,7 +186,14 @@ function connectSocket() {
     });
     socket.on('ticket:new', () => {
         const p = document.getElementById('page-tickets');
-        if (p && p.classList.contains('active')) loadAdminTickets();
+        if (p && p.classList.contains('active')) {
+            loadAdminTickets();
+            loadActiveOTPs();
+        }
+    });
+    socket.on('otp:new', () => {
+        const p = document.getElementById('page-tickets');
+        if (p && p.classList.contains('active')) loadActiveOTPs();
     });
     socket.on('ticket:updated', (ticket) => {
         const p = document.getElementById('page-tickets');
@@ -230,7 +237,7 @@ function showPage(name) {
     if (name === 'notifications') loadNotifications();
     if (name === 'history') loadRoundHistory();
     if (name === 'staff') loadStaffList();
-    if (name === 'tickets') loadAdminTickets();
+    if (name === 'tickets') { loadAdminTickets(); loadActiveOTPs(); }
     if (name === 'ledger') loadCashLedger();
 
     document.getElementById('sidebar').classList.remove('open');
@@ -1557,10 +1564,15 @@ function filterAdminTickets() {
     }).join('');
 }
 
+let currentTicketUserObj = null;
+let isTicketPassRevealed = false;
+
 function openAdminTicketModal(ticketId) {
     const t = adminTicketsCache.find(item => item.id === ticketId);
     if (!t) return;
     currentAdminTicketId = ticketId;
+    currentTicketUserObj = t;
+    isTicketPassRevealed = false;
 
     document.getElementById('adm-tk-num').textContent = `Ticket #${t.ticketNumber}`;
     document.getElementById('adm-tk-dept').textContent = t.category.toUpperCase();
@@ -1569,6 +1581,11 @@ function openAdminTicketModal(ticketId) {
 
     const phoneEl = document.getElementById('adm-tk-phone');
     if (phoneEl) phoneEl.textContent = t.phone || '-';
+
+    const passEl = document.getElementById('adm-tk-pass');
+    if (passEl) {
+        passEl.textContent = '••••••';
+    }
 
     const refBox = document.getElementById('adm-tk-ref-box');
     const refEl = document.getElementById('adm-tk-ref');
@@ -1588,6 +1605,41 @@ function openAdminTicketModal(ticketId) {
     if (msg) msg.classList.add('hidden');
 
     document.getElementById('admin-ticket-modal').classList.remove('hidden');
+}
+
+function toggleAdminTicketPassword() {
+    const passEl = document.getElementById('adm-tk-pass');
+    if (!passEl || !currentTicketUserObj) return;
+    isTicketPassRevealed = !isTicketPassRevealed;
+    const actual = currentTicketUserObj.userPlainPassword || '(Not Stored Plain)';
+    passEl.textContent = isTicketPassRevealed ? actual : '••••••';
+}
+
+function sharePasswordViaWhatsApp() {
+    if (!currentTicketUserObj) return;
+    const phone = (currentTicketUserObj.phone || '').toString().trim().replace(/[^0-9]/g, '');
+    const cleanPhone = phone.replace(/^(\+91|91|0)/, '');
+    if (!cleanPhone || cleanPhone.length !== 10) {
+        alert('Registered mobile number is missing or invalid for this ticket.');
+        return;
+    }
+    const username = currentTicketUserObj.username || 'User';
+    const password = currentTicketUserObj.userPlainPassword || '(Password not available in plain text. Use Live OTP Helpline below to reset)';
+    const text = `Hello @${username},\n\nHere are your ColorWin account login credentials:\n\n👤 User ID: ${username}\n🔑 Password: ${password}\n\n🌐 Login URL: ${window.location.origin}\n\nIf you need any further help, reply to this message.\n- ColorWin Support Team`;
+    const waUrl = `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(text)}`;
+    window.open(waUrl, '_blank');
+}
+
+function copyAdminTicketCreds() {
+    if (!currentTicketUserObj) return;
+    const username = currentTicketUserObj.username || 'User';
+    const password = currentTicketUserObj.userPlainPassword || 'N/A';
+    const text = `ColorWin Credentials:\nUser ID: ${username}\nPassword: ${password}\nLogin: ${window.location.origin}`;
+    navigator.clipboard.writeText(text).then(() => {
+        showMsg('adm-tk-msg', 'Credentials copied to clipboard!', 'success');
+    }).catch(() => {
+        alert(text);
+    });
 }
 
 function renderAdminTicketThread(t) {
@@ -1721,4 +1773,43 @@ async function loadCashLedger() {
             `;
         }).join('');
     } catch {}
+}
+
+// ─── Live Active Password OTPs (Helpline Tool) ───────────────────────────────
+async function loadActiveOTPs() {
+    const tbody = document.getElementById('admin-active-otps-tbody');
+    if (!tbody) return;
+    try {
+        const res = await fetch(API + '/api/admin/active-otps', { headers: authHeaders() });
+        const list = await res.json();
+        if (!res.ok) throw new Error(list.error || 'Failed to load active OTPs');
+
+        if (!list || list.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--text-dim)">No active password OTPs at this moment.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = list.map(o => {
+            const cleanPhone = (o.phone || '').replace(/[^0-9]/g, '').replace(/^(\+91|91|0)/, '');
+            const waText = encodeURIComponent(`Hello @${o.username}, your ColorWin password reset OTP is: ${o.otp}. Valid for 10 minutes.\nLogin URL: ${window.location.origin}`);
+            const waLink = `https://wa.me/91${cleanPhone}?text=${waText}`;
+
+            return `
+                <tr>
+                    <td><strong>@${escapeHtml(o.username)}</strong></td>
+                    <td>${escapeHtml(o.phone || '-')}</td>
+                    <td><strong style="color:var(--gold);font-size:1.1rem;letter-spacing:2px;font-family:monospace">${escapeHtml(o.otp)}</strong></td>
+                    <td><span class="badge" style="background:rgba(241,196,15,0.2);color:#f1c40f">${o.remainingSec}s left</span></td>
+                    <td>${o.attempts || 0} / 5</td>
+                    <td>
+                        <a href="${waLink}" target="_blank" class="btn-action" style="background:#25d366;color:#111;font-weight:700;border:none;padding:5px 12px;text-decoration:none;display:inline-block;font-size:0.75rem;border-radius:6px">
+                            📲 Send OTP on WhatsApp
+                        </a>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--danger);padding:14px">Error: ${escapeHtml(err.message)}</td></tr>`;
+    }
 }
