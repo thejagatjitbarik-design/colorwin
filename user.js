@@ -253,8 +253,6 @@ function setAuthMode(mode) {
         if (forgotBox) forgotBox.classList.add('hidden');
         if (toggleLink) toggleLink.textContent = 'Login';
         if (toggleLabel) toggleLabel.textContent = 'Already have an account? ';
-        const tcCheckbox = document.getElementById('auth-tc');
-        if (tcCheckbox) tcCheckbox.checked = true;
     } else {
         if (tabLogin) {
             tabLogin.style.background = 'var(--primary)';
@@ -321,7 +319,17 @@ async function submitAuth(e) {
             return;
         }
         const tcCheckbox = document.getElementById('auth-tc');
-        if (tcCheckbox) tcCheckbox.checked = true; // Auto-agree to avoid user frustration
+        if (!tcCheckbox || !tcCheckbox.checked) {
+            if (errEl) {
+                errEl.textContent = '⚠️ Please accept the Terms & Conditions before registering.';
+                errEl.classList.remove('hidden');
+            }
+            if (authBtn) {
+                authBtn.disabled = false;
+                authBtn.textContent = 'Register Account';
+            }
+            return;
+        }
     }
 
     if (authBtn) {

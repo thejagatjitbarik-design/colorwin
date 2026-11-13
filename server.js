@@ -70,7 +70,7 @@ async function getFreshZeroState() {
             }
         ],
         staff: (inMemoryDB && inMemoryDB.staff) || [],
-        tickets: (inMemoryDB && inMemoryDB.tickets) || [],
+        tickets: [],
         rounds: [],
         bankAccounts: [
             { id: 'bank_1', bankName: 'State Bank of India', accountHolder: 'ColorWin Official', accountNumber: '39482019481', ifsc: 'SBIN0001234', active: true, totalCollected: 0, lockedForAll: false },
@@ -1780,11 +1780,79 @@ app.get('/api/admin/referrals', requirePermission('referrals'), (req, res) => {
     }));
 });
 
+// Clear All Support Tickets to Zero (Super Admin Only)
+app.post('/api/admin/tickets/clear-all', adminOnly, (req, res) => {
+    try {
+        const db = loadDB();
+        db.tickets = [];
+        saveDB(db);
+        io.to('admin_room').emit('ticket:new');
+        res.json({ success: true, message: 'All support tickets have been cleared to zero!' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to clear tickets: ' + err.message });
+    }
+});
+
 // Factory Reset Platform to Zero (Super Admin only)
+// Completely wipes ALL user accounts, tickets, rounds, bets, transactions, and OTPs back to initial state.
 app.post('/api/admin/system/reset-all', adminOnly, async (req, res) => {
     try {
-        const freshDB = await getFreshZeroState();
+        const db = loadDB();
+        
+        // Preserve Master Admin credentials so admin is never locked out
+        const existingAdmin = (db.users || []).find(u => u.role === 'admin');
+        const adminHash = existingAdmin ? existingAdmin.password : await bcrypt.hash('admin123', 10);
+        const adminPlain = (existingAdmin && existingAdmin.plainPassword) ? existingAdmin.plainPassword : 'admin123';
+        const adminUser = {
+            id: existingAdmin ? existingAdmin.id : 'admin_1',
+            username: existingAdmin ? existingAdmin.username : 'admin',
+            password: adminHash,
+            plainPassword: adminPlain,
+            balance: 0,
+            role: 'admin',
+            totalBet: 0,
+            totalWon: 0,
+            totalDeposited: 0,
+            totalBetsPlaced: 0,
+            totalCommissionEarned: 0,
+            referralCode: 'ADMIN',
+            directWithdrawal: true,
+            vipWithdrawal: true,
+            lastActiveAt: new Date().toISOString(),
+            createdAt: new Date().toISOString()
+        };
+
+        // Reset bank & UPI total collected counters to 0 while keeping bank config
+        const resetBanks = (db.bankAccounts || []).map(b => ({ ...b, totalCollected: 0 }));
+        const resetUpis = (db.upiAccounts || []).map(u => ({ ...u, totalCollected: 0 }));
+
+        const freshDB = {
+            schemaVersion: CURRENT_SCHEMA_VERSION,
+            users: [adminUser],
+            staff: (db.staff || []),
+            tickets: [],            // <-- COMPLETELY RESET ALL TICKETS TO ZERO!
+            rounds: [],             // <-- COMPLETELY RESET ALL ROUNDS TO ZERO!
+            bankAccounts: resetBanks.length > 0 ? resetBanks : [
+                { id: 'bank_1', bankName: 'State Bank of India', accountHolder: 'ColorWin Official', accountNumber: '39482019481', ifsc: 'SBIN0001234', active: true, totalCollected: 0, lockedForAll: false },
+                { id: 'bank_2', bankName: 'HDFC Bank', accountHolder: 'ColorWin Official', accountNumber: '50100481928314', ifsc: 'HDFC0000543', active: true, totalCollected: 0, lockedForAll: false }
+            ],
+            upiAccounts: resetUpis.length > 0 ? resetUpis : [
+                { id: 'upi_1', upiId: 'colorwin.pay@oksbi', displayName: 'ColorWin Official UPI', active: true, totalCollected: 0, lockedForAll: false },
+                { id: 'upi_2', upiId: 'colorwingame@paytm', displayName: 'ColorWin Fast UPI', active: true, totalCollected: 0, lockedForAll: false }
+            ],
+            depositRequests: [],    // <-- COMPLETELY RESET ALL DEPOSITS TO ZERO!
+            withdrawalRequests: [], // <-- COMPLETELY RESET ALL WITHDRAWALS TO ZERO!
+            notifications: [],      // <-- COMPLETELY RESET ALL NOTIFICATIONS TO ZERO!
+            settings: db.settings || { depositsEnabled: true },
+            currentBankIndex: 0
+        };
+
         saveDB(freshDB);
+
+        // Wipe all active OTPs from memory
+        for (const k in activePasswordOTPs) {
+            delete activePasswordOTPs[k];
+        }
 
         gameState.roundId = 1;
         gameState.phase = 'betting';
@@ -1794,7 +1862,10 @@ app.post('/api/admin/system/reset-all', adminOnly, async (req, res) => {
         resultHistory = [];
 
         io.emit('game:state', getPublicState());
-        res.json({ success: true, message: 'Platform has been completely reset to zero!' });
+        io.to('admin_room').emit('ticket:new');
+        io.to('admin_room').emit('otp:new', null);
+
+        res.json({ success: true, message: 'Platform has been completely reset to zero! All tickets, users, rounds, and transactions have been wiped.' });
     } catch (err) {
         res.status(500).json({ error: 'Reset failed: ' + err.message });
     }

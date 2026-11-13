@@ -1505,6 +1505,23 @@ async function loadAdminTickets() {
     } catch {}
 }
 
+async function clearAllAdminTickets() {
+    if (!confirm('⚠️ Are you sure you want to permanently clear and delete ALL support tickets back to ZERO?')) return;
+    try {
+        const res = await fetch(API + '/api/admin/tickets/clear-all', {
+            method: 'POST',
+            headers: authHeaders()
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        adminTicketsCache = [];
+        filterAdminTickets();
+        alert('✅ All tickets have been cleared to zero!');
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
 function filterAdminTickets() {
     const deptFilter = document.getElementById('tk-filter-dept')?.value || 'all';
     const statusFilter = document.getElementById('tk-filter-status')?.value || 'all';
