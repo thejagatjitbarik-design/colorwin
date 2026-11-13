@@ -974,7 +974,7 @@ app.post('/api/tickets/public-request', async (req, res) => {
     io.to('admin_room').emit('notification:new', notif);
 
     // Build prefilled WhatsApp link for user if admin helpline exists
-    const adminHelpline = (db.settings && db.settings.supportPhone) || '919876543210';
+    const adminHelpline = (db.settings && db.settings.supportPhone) || '911234567890';
     const cleanAdminPhone = adminHelpline.replace(/[^0-9]/g, '');
     const waText = encodeURIComponent(`Hello Admin, I have submitted ColorWin Support Ticket #${ticketNumber}.\nUsername: ${cleanUser}\nMobile: ${cleanPhone}\nIssue: ${reason || 'Forgot Credentials'}.\nPlease send my ID & Password.`);
     const waLink = `https://wa.me/${cleanAdminPhone}?text=${waText}`;

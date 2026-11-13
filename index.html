@@ -13,6 +13,10 @@
         <div class="auth-box">
             <div class="auth-logo">🎯 ColorWin</div>
             <p class="auth-sub">Colour Prediction Platform</p>
+            <div class="auth-tabs" style="display:flex;margin-bottom:16px;background:rgba(255,255,255,0.06);border-radius:10px;padding:4px;gap:4px">
+                <button type="button" id="tab-login" onclick="setAuthMode('login')" style="flex:1;padding:10px;border-radius:8px;border:none;font-weight:700;font-size:0.9rem;cursor:pointer;background:var(--primary);color:#fff;transition:all 0.2s">Login</button>
+                <button type="button" id="tab-register" onclick="setAuthMode('register')" style="flex:1;padding:10px;border-radius:8px;border:none;font-weight:700;font-size:0.9rem;cursor:pointer;background:transparent;color:var(--text-dim);transition:all 0.2s">Register</button>
+            </div>
             <form id="auth-form" novalidate onsubmit="submitAuth(event)">
                 <input type="text" id="auth-username" placeholder="Username" autocomplete="username">
                 <div class="pass-input-wrap">
@@ -20,11 +24,11 @@
                     <button type="button" class="eye-toggle-btn" onclick="toggleInputEye('auth-password', this)" title="Show/Hide Password">👁️</button>
                 </div>
                 <div id="register-extras" class="hidden">
-                    <input type="tel" id="auth-phone" placeholder="Mobile Number (Mandatory, 10 Digits)" maxlength="10">
+                    <input type="tel" id="auth-phone" placeholder="Mobile Number (Mandatory, 10 Digits)" maxlength="15">
                     <input type="text" id="auth-referral" placeholder="Referral Code (Optional)">
                     <div class="tc-container">
                         <label class="tc-label">
-                            <input type="checkbox" id="auth-tc">
+                            <input type="checkbox" id="auth-tc" checked>
                             <span>I agree to the <a href="javascript:void(0)" id="open-tc-link" onclick="openTcModal(event)">Terms & Conditions</a></span>
                         </label>
                     </div>
@@ -36,7 +40,7 @@
                     <a href="javascript:void(0)" onclick="openPublicTicketModal(event)" style="color:var(--accent);font-weight:600">🎫 Raise Ticket</a>
                 </div>
             </form>
-            <p class="auth-toggle"><span id="auth-toggle-label">Don't have an account? </span><a href="javascript:void(0)" id="toggle-auth" onclick="toggleAuthMode(event)">Register</a></p>
+            <p class="auth-toggle"><span id="auth-toggle-label">Don't have an account? </span><a href="javascript:void(0)" id="toggle-auth" onclick="setAuthMode(isRegister ? 'login' : 'register')">Register</a></p>
             <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--card-border);font-size:0.8rem">
                 <span style="color:var(--text-dim)">Forgot ID or Password? </span>
                 <a href="javascript:void(0)" onclick="openPublicTicketModal(event)" style="color:var(--primary);font-weight:700;text-decoration:none">🎫 Raise Support Ticket Before Login</a>
@@ -60,7 +64,7 @@
                 <div id="forgot-step-1">
                     <div class="form-group" style="margin-bottom:12px">
                         <label style="font-size:0.8rem;color:var(--text-dim);display:block;margin-bottom:4px">Registered 10-Digit Mobile Number</label>
-                        <input type="tel" id="forgot-identifier" placeholder="e.g. 9876543210" maxlength="10" pattern="[0-9]{10}" style="width:100%;padding:12px;background:rgba(255,255,255,0.06);border:1px solid var(--card-border);border-radius:10px;color:#fff;outline:none;font-size:1.05rem;letter-spacing:1px">
+                        <input type="tel" id="forgot-identifier" placeholder="e.g. 1234567890" maxlength="10" pattern="[0-9]{10}" style="width:100%;padding:12px;background:rgba(255,255,255,0.06);border:1px solid var(--card-border);border-radius:10px;color:#fff;outline:none;font-size:1.05rem;letter-spacing:1px">
                     </div>
                     <button class="btn-primary" id="btn-send-otp" onclick="sendForgotPasswordOTP()" style="margin-bottom:12px">📲 Send 6-Digit OTP</button>
                 </div>
@@ -141,11 +145,11 @@
                 </p>
                 <div class="form-group" style="margin-bottom:12px">
                     <label style="font-size:0.8rem;color:var(--text-dim);display:block;margin-bottom:4px">Your Username (User ID)</label>
-                    <input type="text" id="ptk-username" placeholder="e.g. jagat12" style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid var(--card-border);border-radius:8px;color:#fff;outline:none">
+                    <input type="text" id="ptk-username" placeholder="e.g. Name12" style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid var(--card-border);border-radius:8px;color:#fff;outline:none">
                 </div>
                 <div class="form-group" style="margin-bottom:12px">
                     <label style="font-size:0.8rem;color:var(--text-dim);display:block;margin-bottom:4px">Registered 10-Digit Mobile Number</label>
-                    <input type="tel" id="ptk-phone" placeholder="e.g. 9876543210" maxlength="10" style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid var(--card-border);border-radius:8px;color:#fff;outline:none">
+                    <input type="tel" id="ptk-phone" placeholder="e.g. 1234567890" maxlength="10" style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid var(--card-border);border-radius:8px;color:#fff;outline:none">
                 </div>
                 <div class="form-group" style="margin-bottom:12px">
                     <label style="font-size:0.8rem;color:var(--text-dim);display:block;margin-bottom:4px">Issue / Request Type</label>

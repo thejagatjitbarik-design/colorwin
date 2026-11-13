@@ -186,12 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (refCode) {
         const refInput = document.getElementById('auth-referral');
         if (refInput) refInput.value = refCode;
-    }
-
-    // Auth toggle
-    const toggleAuth = document.getElementById('toggle-auth');
-    if (toggleAuth) {
-        toggleAuth.addEventListener('click', toggleAuthMode);
+        setAuthMode('register');
     }
 
     // Terms & Conditions link
@@ -224,27 +219,56 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-function toggleAuthMode(e) {
-    if (e && e.preventDefault) e.preventDefault();
-    isRegister = !isRegister;
+function setAuthMode(mode) {
+    isRegister = (mode === 'register');
+    const tabLogin = document.getElementById('tab-login');
+    const tabRegister = document.getElementById('tab-register');
+    const regExtras = document.getElementById('register-extras');
+    const forgotBox = document.getElementById('forgot-link-box');
+    const authBtn = document.getElementById('auth-btn');
+    const toggleLink = document.getElementById('toggle-auth');
+    const toggleLabel = document.getElementById('auth-toggle-label');
     const errEl = document.getElementById('auth-error');
+
     if (errEl) {
         errEl.classList.add('hidden');
         errEl.textContent = '';
     }
-    const authBtn = document.getElementById('auth-btn');
+
     if (authBtn) {
         authBtn.disabled = false;
-        authBtn.textContent = isRegister ? 'Register & Accept Terms' : 'Login';
+        authBtn.textContent = isRegister ? 'Register Account' : 'Login';
     }
-    const regExtras = document.getElementById('register-extras');
-    if (regExtras) regExtras.classList.toggle('hidden', !isRegister);
-    const forgotBox = document.getElementById('forgot-link-box');
-    if (forgotBox) forgotBox.classList.toggle('hidden', isRegister);
-    const toggleLink = document.getElementById('toggle-auth');
-    if (toggleLink) toggleLink.textContent = isRegister ? 'Login' : 'Register';
-    const toggleLabel = document.getElementById('auth-toggle-label');
-    if (toggleLabel) toggleLabel.textContent = isRegister ? 'Already have an account? ' : "Don't have an account? ";
+
+    if (isRegister) {
+        if (tabRegister) {
+            tabRegister.style.background = 'var(--primary)';
+            tabRegister.style.color = '#fff';
+        }
+        if (tabLogin) {
+            tabLogin.style.background = 'transparent';
+            tabLogin.style.color = 'var(--text-dim)';
+        }
+        if (regExtras) regExtras.classList.remove('hidden');
+        if (forgotBox) forgotBox.classList.add('hidden');
+        if (toggleLink) toggleLink.textContent = 'Login';
+        if (toggleLabel) toggleLabel.textContent = 'Already have an account? ';
+        const tcCheckbox = document.getElementById('auth-tc');
+        if (tcCheckbox) tcCheckbox.checked = true;
+    } else {
+        if (tabLogin) {
+            tabLogin.style.background = 'var(--primary)';
+            tabLogin.style.color = '#fff';
+        }
+        if (tabRegister) {
+            tabRegister.style.background = 'transparent';
+            tabRegister.style.color = 'var(--text-dim)';
+        }
+        if (regExtras) regExtras.classList.add('hidden');
+        if (forgotBox) forgotBox.classList.remove('hidden');
+        if (toggleLink) toggleLink.textContent = 'Register';
+        if (toggleLabel) toggleLabel.textContent = "Don't have an account? ";
+    }
 }
 
 async function submitAuth(e) {
@@ -252,9 +276,14 @@ async function submitAuth(e) {
     const username = document.getElementById('auth-username')?.value.trim();
     const password = document.getElementById('auth-password')?.value;
     const errEl = document.getElementById('auth-error');
+    const authBtn = document.getElementById('auth-btn');
+
     if (errEl) {
         errEl.classList.add('hidden');
         errEl.textContent = '';
+    }
+    if (authBtn) {
+        authBtn.disabled = false;
     }
 
     if (!username) {
@@ -272,8 +301,11 @@ async function submitAuth(e) {
         return;
     }
 
+    const rawPhone = document.getElementById('auth-phone')?.value || '';
+    const phone = rawPhone.replace(/[^0-9]/g, '').replace(/^91(?=[0-9]{10}$)/, '').replace(/^0(?=[0-9]{10}$)/, '');
+    const referralCode = document.getElementById('auth-referral')?.value.trim() || '';
+
     if (isRegister) {
-        const phone = document.getElementById('auth-phone')?.value.trim() || '';
         if (!phone) {
             if (errEl) {
                 errEl.textContent = '⚠️ 10-digit Mobile number is mandatory. Duplicate accounts are not allowed.';
@@ -289,21 +321,12 @@ async function submitAuth(e) {
             return;
         }
         const tcCheckbox = document.getElementById('auth-tc');
-        if (!tcCheckbox || !tcCheckbox.checked) {
-            if (errEl) {
-                errEl.textContent = '⚠️ Please accept the Terms & Conditions before registering.';
-                errEl.classList.remove('hidden');
-            }
-            return;
-        }
+        if (tcCheckbox) tcCheckbox.checked = true; // Auto-agree to avoid user frustration
     }
 
-    const phone = document.getElementById('auth-phone')?.value.trim() || '';
-    const referralCode = document.getElementById('auth-referral')?.value.trim() || '';
-    const authBtn = document.getElementById('auth-btn');
     if (authBtn) {
         authBtn.disabled = true;
-        authBtn.textContent = '⏳ Checking credentials...';
+        authBtn.textContent = isRegister ? '⏳ Creating account...' : '⏳ Checking credentials...';
     }
 
     try {
@@ -336,7 +359,7 @@ async function submitAuth(e) {
     } finally {
         if (authBtn) {
             authBtn.disabled = false;
-            authBtn.textContent = isRegister ? 'Register & Accept Terms' : 'Login';
+            authBtn.textContent = isRegister ? 'Register Account' : 'Login';
         }
     }
 }
