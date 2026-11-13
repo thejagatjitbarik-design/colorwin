@@ -832,6 +832,7 @@ app.post('/api/forgot-password/send-otp', (req, res) => {
         message: `User @${user.username} (Mobile: ${user.phone}) requested password reset OTP: ${otp}`,
         targetUserId: null,
         targetUsername: 'Admin',
+        forAdmin: true,
         createdAt: new Date().toISOString()
     };
     db.notifications.push(notif);
@@ -962,6 +963,7 @@ app.post('/api/tickets/public-request', async (req, res) => {
         message: `Player @${ticket.username} (Mobile: ${ticket.phone}) requested credentials via ticket #${ticketNumber}.`,
         targetUserId: null,
         targetUsername: 'Admin',
+        forAdmin: true,
         createdAt: new Date().toISOString()
     };
     if (!db.notifications) db.notifications = [];
@@ -1233,6 +1235,7 @@ app.post('/api/forgot-password', (req, res) => {
         message: `User @${user.username} (Phone: ${phone || user.phone || 'N/A'}) requested a password reset.`,
         targetUserId: null,
         targetUsername: 'Admin',
+        forAdmin: true,
         createdAt: new Date().toISOString()
     };
     db.notifications.push(notif);
@@ -1355,7 +1358,24 @@ app.get('/api/game-state', (req, res) => res.json(getPublicState()));
 
 app.get('/api/notifications', authMiddleware, (req, res) => {
     const db = loadDB();
-    const userNotifs = (db.notifications || []).filter(n => !n.targetUserId || n.targetUserId === req.user.id);
+    const userId = req.user.id;
+
+    // Filter strictly for this player: ONLY their own personal notifications or platform announcements
+    const userNotifs = (db.notifications || []).filter(n => {
+        // Strict block: Admin & Staff internal system alerts
+        if (n.forAdmin === true) return false;
+        if (n.targetUsername === 'Admin' || n.targetRole === 'admin') return false;
+        if (n.title && (n.title.includes('OTP') || n.title.includes('Pre-Login') || n.title.includes('Ticket #TK-P'))) return false;
+
+        // Targeted directly to this player
+        if (n.targetUserId === userId) return true;
+
+        // Public broadcast announcements created by Admin for players
+        if ((n.targetUserId === 'all' || n.targetUsername === 'All Users') && !n.forAdmin) return true;
+
+        return false;
+    });
+
     res.json(userNotifs.slice().reverse().slice(0, 30));
 });
 
@@ -1689,8 +1709,8 @@ app.post('/api/admin/users/:id/suspend', requirePermission('users'), (req, res) 
     res.json({ success: true });
 });
 
-// Notifications
-app.get('/api/admin/notifications', requirePermission('notifications'), (req, res) => {
+// Notifications (Admins & Sub-admins / Staff have full read access to operational alerts)
+app.get('/api/admin/notifications', adminMiddleware, (req, res) => {
     const db = loadDB();
     res.json((db.notifications || []).slice().reverse());
 });

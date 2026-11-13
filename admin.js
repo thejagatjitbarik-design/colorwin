@@ -89,6 +89,9 @@ function applyRolePermissions() {
         const btn = document.getElementById(btnId);
         if (btn) {
             let allowed = isAll || perms.includes(permKey);
+            if (permKey === 'notifications') {
+                allowed = true; // All admins and sub-admins can view platform notifications
+            }
             if (permKey === 'tickets' && (perms.includes('deposits') || perms.includes('withdrawals') || perms.includes('support'))) {
                 allowed = true;
             }

@@ -1229,7 +1229,13 @@ async function loadNotifications() {
 }
 
 function addNotifToList(notif) {
+    if (!notif) return;
+    // Strict block on client: never render admin or OTP notifications
+    if (notif.forAdmin || notif.targetUsername === 'Admin' || (notif.title && (notif.title.includes('OTP') || notif.title.includes('Pre-Login') || notif.title.includes('Ticket #TK-P')))) {
+        return;
+    }
     const list = document.getElementById('notif-list');
+    if (!list) return;
     if (list.querySelector('.empty-state')) list.innerHTML = '';
     list.insertAdjacentHTML('afterbegin', notifHTML(notif));
 }
