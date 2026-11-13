@@ -53,6 +53,7 @@ async function getFreshZeroState() {
                 id: 'admin_1',
                 username: 'admin',
                 password: adminHash,
+                plainPassword: 'admin123',
                 balance: 0,
                 role: 'admin',
                 totalBet: 0,
@@ -67,6 +68,8 @@ async function getFreshZeroState() {
                 createdAt: new Date().toISOString()
             }
         ],
+        staff: (inMemoryDB && inMemoryDB.staff) || [],
+        tickets: (inMemoryDB && inMemoryDB.tickets) || [],
         rounds: [],
         bankAccounts: [
             { id: 'bank_1', bankName: 'State Bank of India', accountHolder: 'ColorWin Official', accountNumber: '39482019481', ifsc: 'SBIN0001234', active: true, totalCollected: 0, lockedForAll: false },
@@ -155,6 +158,8 @@ function loadDB() {
     if (!inMemoryDB.upiAccounts) inMemoryDB.upiAccounts = [];
     if (!inMemoryDB.notifications) inMemoryDB.notifications = [];
     if (!inMemoryDB.settings) inMemoryDB.settings = { depositsEnabled: true };
+    if (!inMemoryDB.staff) inMemoryDB.staff = [];
+    if (!inMemoryDB.tickets) inMemoryDB.tickets = [];
     return inMemoryDB;
 }
 
@@ -210,7 +215,7 @@ function checkWithdrawalEligibility(user, db) {
             betsByUser[bet.userId] = (betsByUser[bet.userId] || 0) + 1;
 
     const referrals = (db.users || []).filter(u => u.referredBy === user.id);
-    const activeReferrals = referrals.filter(u => (betsByUser[u.id] || 0) >= RULES.MIN_BET_FOR_ACTIVE);
+    const activeReferrals = referrals.filter(u => (u.totalBetsPlaced || 0) >= RULES.MIN_BET_FOR_ACTIVE || (u.totalBet || 0) > 0 || (betsByUser[u.id] || 0) >= RULES.MIN_BET_FOR_ACTIVE);
     const totalDeposited = user.totalDeposited || 0;
 
     if (balance < RULES.MIN_WITHDRAW) reasons.push(`Balance must be ≥ ₹${RULES.MIN_WITHDRAW}`);
@@ -367,12 +372,12 @@ function settleRound(result) {
         betSummary.push({ userId, username: user.username, color: bet.color, amount: bet.amount, won, payout });
         io.to(`user_${userId}`).emit('bet:result', { won, payout, newBalance: user.balance, color: result });
 
-        // 4-Leg Multi-Tier Referral Commission on every winning bet:
+        // 4-Leg Multi-Tier Referral Commission on every bet:
         // Leg 1 (direct referrer): 0.04%
         // Leg 2 (referrer's referrer): 0.01%
         // Leg 3: 0.01%
         // Leg 4: 0.01%
-        if (won && payout > 0 && user.referredBy) {
+        if (user.referredBy && bet.amount > 0) {
             let currentUserId = user.id;
             const visited = new Set([user.id]);
             for (let leg = 0; leg < 4; leg++) {
@@ -384,7 +389,8 @@ function settleRound(result) {
                 visited.add(parent.id);
 
                 const rate = RULES.LEG_COMMISSION_RATES[leg] || 0.0001;
-                const rawCommission = payout * rate;
+                // Commission is calculated on bet amount (turnover): Leg 1: 0.04%, Legs 2-4: 0.01%
+                const rawCommission = bet.amount * rate;
                 let commission = +(rawCommission.toFixed(2));
                 if (commission === 0 && rawCommission > 0) commission = 0.01;
 
@@ -501,18 +507,14 @@ function hashCode(str) {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(__dirname));
+app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req, res) => {
-    const pubPath = path.join(__dirname, 'public', 'index.html');
-    if (fs.existsSync(pubPath)) return res.sendFile(pubPath);
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 app.get('/admin.html', (req, res) => {
-    const pubPath = path.join(__dirname, 'public', 'admin.html');
-    if (fs.existsSync(pubPath)) return res.sendFile(pubPath);
     res.sendFile(path.join(__dirname, 'admin.html'));
 });
 
@@ -555,9 +557,31 @@ function adminMiddleware(req, res, next) {
     if (!token) return res.status(401).json({ error: 'No token' });
     try {
         req.user = jwt.verify(token, JWT_SECRET);
-        if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+        if (req.user.role !== 'admin' && req.user.role !== 'staff') {
+            return res.status(403).json({ error: 'Admin or Staff access only' });
+        }
         next();
     } catch { res.status(401).json({ error: 'Invalid token' }); }
+}
+
+function requirePermission(perm) {
+    return (req, res, next) => {
+        adminMiddleware(req, res, () => {
+            if (req.user.role === 'admin' || (req.user.permissions && (req.user.permissions.includes('all') || req.user.permissions.includes(perm)))) {
+                return next();
+            }
+            return res.status(403).json({ error: `Forbidden: You do not have permission to access '${perm}'` });
+        });
+    };
+}
+
+function adminOnly(req, res, next) {
+    adminMiddleware(req, res, () => {
+        if (req.user.role !== 'admin') {
+            return res.status(403).json({ error: 'Forbidden: Super Admin access required' });
+        }
+        next();
+    });
 }
 
 // ─── Active OTPs for Password Reset ───────────────────────────────────────────
@@ -568,20 +592,32 @@ app.post('/api/register', async (req, res) => {
     const { username, password, referralCode, phone } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Missing username or password' });
     const cleanUser = username.trim();
-    const cleanPhone = phone ? phone.trim() : null;
+    const cleanPhone = phone ? phone.toString().trim().replace(/\s+/g, '') : '';
+
+    if (!cleanPhone) {
+        return res.status(400).json({ error: 'Mobile number is mandatory. Please enter your 10-digit mobile number.' });
+    }
+    if (!/^\d{10}$/.test(cleanPhone)) {
+        return res.status(400).json({ error: 'Invalid mobile number. Must be exactly 10 numeric digits.' });
+    }
+    if (cleanUser.length < 3) {
+        return res.status(400).json({ error: 'Username must be at least 3 characters.' });
+    }
+
     const db = loadDB();
 
     if (db.users.find(u => u.username.toLowerCase() === cleanUser.toLowerCase())) {
         return res.status(400).json({ error: 'Username already taken. Please choose another username. Duplicate accounts are not allowed.' });
     }
 
-    if (cleanPhone && db.users.find(u => u.phone && u.phone === cleanPhone)) {
+    if (db.users.find(u => u.phone && u.phone === cleanPhone)) {
         return res.status(400).json({ error: 'Mobile number already registered. Duplicate accounts are not allowed.' });
     }
 
     let referredBy = null;
     if (referralCode) {
-        const referrer = db.users.find(u => u.referralCode === referralCode.trim());
+        const cleanRef = referralCode.trim().toUpperCase();
+        const referrer = db.users.find(u => u.referralCode && u.referralCode.trim().toUpperCase() === cleanRef);
         if (referrer) referredBy = referrer.id;
     }
 
@@ -591,6 +627,7 @@ app.post('/api/register', async (req, res) => {
         id: Date.now().toString(),
         username: cleanUser,
         password: hashed,
+        plainPassword: password.trim(),
         phone: cleanPhone,
         balance: 50,
         role: 'user',
@@ -624,41 +661,89 @@ app.post('/api/login', async (req, res) => {
     if (!username || !password) return res.status(400).json({ error: 'Missing username or password' });
     const db = loadDB();
     const cleanUser = username.trim().toLowerCase();
-    const user = db.users.find(u => u.username.toLowerCase() === cleanUser);
+
+    // Check main users (admin / user)
+    let user = db.users.find(u => u.username.toLowerCase() === cleanUser);
+    let isStaff = false;
+
+    // Also check staff table if not found in db.users
+    if (!user && db.staff) {
+        user = db.staff.find(s => s.username.toLowerCase() === cleanUser);
+        if (user) isStaff = true;
+    }
+
     if (!user) {
         return res.status(400).json({ error: 'User not found. Please register. Duplicate accounts are not allowed.' });
     }
+
+    if (user.active === false || user.forceSuspended) {
+        return res.status(403).json({ error: 'Account has been deactivated. Please contact administrator.', suspended: true });
+    }
+
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) {
         return res.status(400).json({ error: 'Invalid password. Please check your password or reset via OTP.' });
     }
-    if (isUserSuspended(user)) {
+
+    if (!isStaff && isUserSuspended(user)) {
         return res.status(403).json({ error: 'Account suspended due to inactivity (15+ days). Contact support.', suspended: true });
     }
 
     // Single Device Enforcement: Invalidate previous session and notify previous device
     const sessionToken = crypto.randomBytes(16).toString('hex');
     user.sessionToken = sessionToken;
-    touchActivity(db, user.id);
+    if (!isStaff) touchActivity(db, user.id);
     saveDB(db);
 
     io.to(`user_${user.id}`).emit('session:replaced', {
         message: 'Your account was logged in from another device.'
     });
 
-    const token = jwt.sign({ id: user.id, username: user.username, role: user.role, sessionToken }, JWT_SECRET);
-    res.json({ token, user: { id: user.id, username: user.username, balance: user.balance, role: user.role, referralCode: user.referralCode, phone: user.phone } });
+    const permissions = isStaff ? (user.permissions || []) : (user.role === 'admin' ? ['all'] : []);
+
+    const token = jwt.sign({
+        id: user.id,
+        username: user.username,
+        role: user.role, // 'admin', 'staff', 'user'
+        permissions,
+        sessionToken
+    }, JWT_SECRET);
+
+    res.json({
+        token,
+        user: {
+            id: user.id,
+            username: user.username,
+            balance: user.balance || 0,
+            role: user.role,
+            permissions,
+            name: user.name || user.username,
+            referralCode: user.referralCode || null,
+            phone: user.phone || null
+        }
+    });
 });
 
 // ─── OTP Password Reset ────────────────────────────────────────────────────────
 app.post('/api/forgot-password/send-otp', (req, res) => {
-    const { identifier } = req.body; // Can be mobile number or username
-    if (!identifier || !identifier.trim()) return res.status(400).json({ error: 'Mobile number or username is required' });
-    const q = identifier.trim();
+    const { identifier, phone } = req.body;
+    const q = (phone || identifier || '').toString().trim().replace(/\s+/g, '');
+    if (!q) {
+        return res.status(400).json({ error: 'Registered 10-digit mobile number is mandatory to reset password.' });
+    }
+    if (!/^\d{10}$/.test(q)) {
+        return res.status(400).json({ error: 'Please enter your registered 10-digit mobile number. Reset by username alone is disabled to secure accounts.' });
+    }
     const db = loadDB();
-    const user = db.users.find(u => (u.phone && u.phone === q) || u.username.toLowerCase() === q.toLowerCase());
+    const user = db.users.find(u => u.phone && u.phone === q);
     if (!user) {
-        return res.status(404).json({ error: 'No account found with this mobile number or username. Please check or register.' });
+        return res.status(404).json({ error: 'No account registered with this 10-digit mobile number. Please check or register.' });
+    }
+
+    const existing = activePasswordOTPs[user.id];
+    if (existing && Date.now() - (existing.createdAt || 0) < 30000) {
+        const waitSec = Math.ceil((30000 - (Date.now() - existing.createdAt)) / 1000);
+        return res.status(429).json({ error: `Please wait ${waitSec}s before requesting a new OTP.` });
     }
 
     // Generate 6-digit OTP
@@ -668,16 +753,18 @@ app.post('/api/forgot-password/send-otp', (req, res) => {
         userId: user.id,
         phone: user.phone,
         username: user.username,
+        attempts: 0,
+        createdAt: Date.now(),
         expiresAt: Date.now() + 10 * 60 * 1000 // 10 minutes
     };
 
-    console.log(`📱 [OTP Verification] User @${user.username} (Phone: ${user.phone || 'N/A'}) OTP generated: ${otp}`);
+    console.log(`🔒 [SECURE OTP] User @${user.username} (Mobile: ${user.phone}) OTP generated: ${otp}`);
 
-    // Notify Admin Panel
+    // Notify Admin Panel (Admin can verify identity if user contacts support)
     const notif = {
         id: Date.now().toString(),
         title: '🔑 Password Reset OTP Sent',
-        message: `User @${user.username} (${user.phone || 'Phone: N/A'}) requested password reset OTP: ${otp}`,
+        message: `User @${user.username} (Mobile: ${user.phone}) requested password reset OTP: ${otp}`,
         targetUserId: null,
         targetUsername: 'Admin',
         createdAt: new Date().toISOString()
@@ -686,12 +773,14 @@ app.post('/api/forgot-password/send-otp', (req, res) => {
     saveDB(db);
     io.to('admin_room').emit('notification:new', notif);
 
+    // CRITICAL SECURITY FIX: Never send OTP in client response or to browser!
+    const maskedPhone = user.phone ? user.phone.slice(0, 2) + '******' + user.phone.slice(-2) : 'registered number';
     res.json({
         success: true,
         userId: user.id,
         username: user.username,
-        otp, // sent for instant verification and testing
-        message: `OTP sent successfully! Enter the 6-digit code below to set your new password.`
+        maskedPhone,
+        message: `OTP dispatched to registered mobile ${maskedPhone}. Enter the 6-digit code below to set your new password.`
     });
 });
 
@@ -704,8 +793,16 @@ app.post('/api/forgot-password/verify-reset', async (req, res) => {
     if (!record || Date.now() > record.expiresAt) {
         return res.status(400).json({ error: 'OTP has expired or is invalid. Please request a new OTP.' });
     }
+
+    record.attempts = (record.attempts || 0) + 1;
+    if (record.attempts > 5) {
+        delete activePasswordOTPs[userId];
+        return res.status(400).json({ error: 'Too many incorrect attempts (max 5). This OTP has been invalidated for security. Please request a new OTP.' });
+    }
+
     if (record.otp !== otp.trim()) {
-        return res.status(400).json({ error: 'Incorrect 6-digit OTP. Please enter the valid code.' });
+        const remaining = 5 - record.attempts;
+        return res.status(400).json({ error: `Incorrect 6-digit OTP. ${remaining} attempt(s) remaining.` });
     }
 
     const db = loadDB();
@@ -713,10 +810,250 @@ app.post('/api/forgot-password/verify-reset', async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     user.password = await bcrypt.hash(newPassword, 10);
+    user.plainPassword = newPassword.trim();
     delete activePasswordOTPs[userId];
     saveDB(db);
 
     res.json({ success: true, message: 'Password reset successful! You can now login with your new password.' });
+});
+
+// Admin endpoint to view active OTPs (so admin can verify or assist via WhatsApp support)
+app.get('/api/admin/active-otps', requirePermission('support'), (req, res) => {
+    const now = Date.now();
+    const active = Object.values(activePasswordOTPs)
+        .filter(o => now < o.expiresAt)
+        .map(o => ({
+            userId: o.userId,
+            username: o.username,
+            phone: o.phone,
+            otp: o.otp,
+            attempts: o.attempts || 0,
+            remainingSec: Math.round((o.expiresAt - now) / 1000)
+        }));
+    res.json(active);
+});
+
+// ─── Helpdesk & Tickets System ─────────────────────────────────────────────────
+app.post('/api/tickets/create', authMiddleware, (req, res) => {
+    const { category, subject, message, referenceId } = req.body;
+    if (!subject || !message) return res.status(400).json({ error: 'Subject and message are required' });
+
+    const validCategories = ['deposit', 'withdrawal', 'game', 'account', 'other'];
+    const cleanCategory = validCategories.includes(category) ? category : 'other';
+
+    const db = loadDB();
+    if (!db.tickets) db.tickets = [];
+
+    const ticket = {
+        id: Date.now().toString(),
+        ticketNumber: `TK-${Math.floor(10000 + Math.random() * 90000)}`,
+        userId: req.user.id,
+        username: req.user.username,
+        category: cleanCategory,
+        subject: subject.trim(),
+        referenceId: referenceId ? referenceId.trim() : null,
+        status: 'open', // 'open', 'in_progress', 'resolved', 'closed'
+        messages: [
+            {
+                id: Date.now().toString(),
+                sender: 'user',
+                senderName: req.user.username,
+                text: message.trim(),
+                timestamp: new Date().toISOString()
+            }
+        ],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+    };
+
+    db.tickets.push(ticket);
+    saveDB(db);
+
+    // Notify Admin Panel in real time
+    io.to('admin_room').emit('ticket:new', ticket);
+
+    res.json({ success: true, ticket });
+});
+
+app.get('/api/tickets/my', authMiddleware, (req, res) => {
+    const db = loadDB();
+    if (!db.tickets) db.tickets = [];
+    const myTickets = db.tickets.filter(t => t.userId === req.user.id).slice().reverse();
+    res.json(myTickets);
+});
+
+app.post('/api/tickets/:id/reply', authMiddleware, (req, res) => {
+    const { message } = req.body;
+    if (!message || !message.trim()) return res.status(400).json({ error: 'Message cannot be empty' });
+
+    const db = loadDB();
+    if (!db.tickets) db.tickets = [];
+    const ticket = db.tickets.find(t => t.id === req.params.id);
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+    if (ticket.userId !== req.user.id) return res.status(403).json({ error: 'Unauthorized' });
+
+    const newMsg = {
+        id: Date.now().toString(),
+        sender: 'user',
+        senderName: req.user.username,
+        text: message.trim(),
+        timestamp: new Date().toISOString()
+    };
+
+    ticket.messages.push(newMsg);
+    if (ticket.status === 'resolved' || ticket.status === 'closed') {
+        ticket.status = 'open';
+    }
+    ticket.updatedAt = new Date().toISOString();
+    saveDB(db);
+
+    io.to('admin_room').emit('ticket:updated', ticket);
+    res.json({ success: true, ticket });
+});
+
+app.get('/api/admin/tickets', adminMiddleware, (req, res) => {
+    const db = loadDB();
+    if (!db.tickets) db.tickets = [];
+    let list = db.tickets.slice();
+
+    // Role-based filtering for staff:
+    // If staff only has 'deposits' permission, show only deposit tickets!
+    // If staff only has 'withdrawals' permission, show only withdrawal tickets!
+    if (req.user.role === 'staff' && req.user.permissions && !req.user.permissions.includes('all') && !req.user.permissions.includes('tickets') && !req.user.permissions.includes('support')) {
+        const perms = req.user.permissions;
+        list = list.filter(t => {
+            if (t.category === 'deposit' && perms.includes('deposits')) return true;
+            if (t.category === 'withdrawal' && perms.includes('withdrawals')) return true;
+            if (t.category === 'game' && perms.includes('game')) return true;
+            return false;
+        });
+    }
+
+    res.json(list.reverse());
+});
+
+app.post('/api/admin/tickets/:id/reply', adminMiddleware, (req, res) => {
+    const { message, status } = req.body;
+    if (!message || !message.trim()) return res.status(400).json({ error: 'Message cannot be empty' });
+
+    const db = loadDB();
+    if (!db.tickets) db.tickets = [];
+    const ticket = db.tickets.find(t => t.id === req.params.id);
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+    const responder = req.user.name || req.user.username || 'Support Team';
+    const newMsg = {
+        id: Date.now().toString(),
+        sender: 'admin',
+        senderName: responder,
+        text: message.trim(),
+        timestamp: new Date().toISOString()
+    };
+
+    ticket.messages.push(newMsg);
+    if (status && ['open', 'in_progress', 'resolved', 'closed'].includes(status)) {
+        ticket.status = status;
+    } else {
+        ticket.status = 'in_progress';
+    }
+    ticket.updatedAt = new Date().toISOString();
+
+    // Auto-create notification for user
+    const notif = {
+        id: Date.now().toString(),
+        title: `💬 Reply on Ticket #${ticket.ticketNumber}`,
+        message: `${responder} replied to "${ticket.subject}": ${message.trim().slice(0, 80)}${message.length > 80 ? '...' : ''}`,
+        targetUserId: ticket.userId,
+        targetUsername: ticket.username,
+        createdAt: new Date().toISOString()
+    };
+    db.notifications.push(notif);
+    saveDB(db);
+
+    io.to(`user_${ticket.userId}`).emit('notification:new', notif);
+    io.to(`user_${ticket.userId}`).emit('ticket:updated', ticket);
+    io.to('admin_room').emit('ticket:updated', ticket);
+
+    res.json({ success: true, ticket });
+});
+
+app.post('/api/admin/tickets/:id/status', adminMiddleware, (req, res) => {
+    const { status } = req.body;
+    if (!['open', 'in_progress', 'resolved', 'closed'].includes(status)) {
+        return res.status(400).json({ error: 'Invalid status' });
+    }
+
+    const db = loadDB();
+    if (!db.tickets) db.tickets = [];
+    const ticket = db.tickets.find(t => t.id === req.params.id);
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+    ticket.status = status;
+    ticket.updatedAt = new Date().toISOString();
+    saveDB(db);
+
+    io.to(`user_${ticket.userId}`).emit('ticket:updated', ticket);
+    io.to('admin_room').emit('ticket:updated', ticket);
+
+    res.json({ success: true, ticket });
+});
+
+// ─── Real Cash P&L Ledger (Actual Inflows & Outflows Excluding Bonuses) ────────
+app.get('/api/admin/cash-ledger', adminMiddleware, (req, res) => {
+    const db = loadDB();
+    const approvedDeposits = (db.depositRequests || []).filter(d => d.status === 'approved');
+    const approvedWithdrawals = (db.withdrawalRequests || []).filter(w => w.status === 'approved');
+
+    const totalRealDeposits = approvedDeposits.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+    const totalRealWithdrawals = approvedWithdrawals.reduce((sum, w) => sum + (Number(w.amount) || 0), 0);
+    const netCashProfit = +(totalRealDeposits - totalRealWithdrawals).toFixed(2);
+
+    // Compute user-by-user real cash balance sheet (bonuses/milestones completely excluded)
+    const userMap = {};
+    approvedDeposits.forEach(d => {
+        if (!userMap[d.userId]) {
+            userMap[d.userId] = { userId: d.userId, username: d.username, deposited: 0, withdrawn: 0, depositCount: 0, withdrawalCount: 0 };
+        }
+        userMap[d.userId].deposited += Number(d.amount) || 0;
+        userMap[d.userId].depositCount++;
+    });
+
+    approvedWithdrawals.forEach(w => {
+        if (!userMap[w.userId]) {
+            userMap[w.userId] = { userId: w.userId, username: w.username, deposited: 0, withdrawn: 0, depositCount: 0, withdrawalCount: 0 };
+        }
+        userMap[w.userId].withdrawn += Number(w.amount) || 0;
+        userMap[w.userId].withdrawalCount++;
+    });
+
+    const userLedger = Object.values(userMap).map(u => {
+        const dbUser = db.users.find(usr => usr.id === u.userId);
+        const currentBal = dbUser ? dbUser.balance : 0;
+        const netContribution = +(u.deposited - u.withdrawn).toFixed(2);
+        return {
+            userId: u.userId,
+            username: u.username,
+            phone: dbUser?.phone || '-',
+            totalDeposited: +u.deposited.toFixed(2),
+            totalWithdrawn: +u.withdrawn.toFixed(2),
+            currentBalance: currentBal,
+            netContribution,
+            status: netContribution >= 0 ? 'PROFIT' : 'LOSS',
+            depositCount: u.depositCount,
+            withdrawalCount: u.withdrawalCount
+        };
+    }).sort((a, b) => b.totalDeposited - a.totalDeposited);
+
+    const totalUserBalanceLiability = db.users.filter(u => u.role !== 'admin').reduce((s, u) => s + (u.balance || 0), 0);
+
+    res.json({
+        totalRealDeposits: +totalRealDeposits.toFixed(2),
+        totalRealWithdrawals: +totalRealWithdrawals.toFixed(2),
+        netCashProfit,
+        totalUserBalanceLiability: +totalUserBalanceLiability.toFixed(2),
+        profitMarginPct: totalRealDeposits > 0 ? +((netCashProfit / totalRealDeposits) * 100).toFixed(1) : 0,
+        userLedger
+    });
 });
 
 // Legacy backward-compatibility for forgot password
@@ -773,7 +1110,7 @@ app.get('/api/color-history', (req, res) => {
 });
 
 // ─── Admin Support Management ──────────────────────────────────────────────────
-app.post('/api/admin/support/contact', adminMiddleware, (req, res) => {
+app.post('/api/admin/support/contact', requirePermission('support'), (req, res) => {
     const { title, value, type, link } = req.body;
     if (!title || !value) return res.status(400).json({ error: 'Title and value required' });
     const db = loadDB();
@@ -793,7 +1130,7 @@ app.post('/api/admin/support/contact', adminMiddleware, (req, res) => {
     res.json({ success: true, contact: newContact });
 });
 
-app.delete('/api/admin/support/contact/:id', adminMiddleware, (req, res) => {
+app.delete('/api/admin/support/contact/:id', requirePermission('support'), (req, res) => {
     const db = loadDB();
     if (db.settings && db.settings.support && db.settings.support.contacts) {
         db.settings.support.contacts = db.settings.support.contacts.filter(c => c.id !== req.params.id);
@@ -802,7 +1139,7 @@ app.delete('/api/admin/support/contact/:id', adminMiddleware, (req, res) => {
     res.json({ success: true });
 });
 
-app.post('/api/admin/support/group', adminMiddleware, (req, res) => {
+app.post('/api/admin/support/group', requirePermission('support'), (req, res) => {
     const { title, link } = req.body;
     if (!title || !link) return res.status(400).json({ error: 'Title and link required' });
     const db = loadDB();
@@ -820,7 +1157,7 @@ app.post('/api/admin/support/group', adminMiddleware, (req, res) => {
     res.json({ success: true, group: newGroup });
 });
 
-app.delete('/api/admin/support/group/:id', adminMiddleware, (req, res) => {
+app.delete('/api/admin/support/group/:id', requirePermission('support'), (req, res) => {
     const db = loadDB();
     if (db.settings && db.settings.support && db.settings.support.groups) {
         db.settings.support.groups = db.settings.support.groups.filter(g => g.id !== req.params.id);
@@ -1054,13 +1391,13 @@ app.post('/api/withdraw', authMiddleware, (req, res) => {
 });
 
 // ─── Admin Routes ──────────────────────────────────────────────────────────────
-app.get('/api/admin/game-bets', adminMiddleware, (req, res) => {
+app.get('/api/admin/game-bets', requirePermission('game'), (req, res) => {
     const bets = getLiveBets();
     const autoResult = calculateAutoResult();
     res.json({ ...bets, autoPick: autoResult, autoMode: gameState.autoResultMode, maintenance: gameState.maintenanceMode });
 });
 
-app.post('/api/admin/result', adminMiddleware, (req, res) => {
+app.post('/api/admin/result', requirePermission('game'), (req, res) => {
     const { result } = req.body;
     if (!['red', 'green', 'violet'].includes(result)) return res.status(400).json({ error: 'Invalid result' });
     if (gameState.phase === 'result') return res.status(400).json({ error: 'Already settled' });
@@ -1068,21 +1405,21 @@ app.post('/api/admin/result', adminMiddleware, (req, res) => {
     res.json({ success: true });
 });
 
-app.post('/api/admin/toggle-betting', adminMiddleware, (req, res) => {
+app.post('/api/admin/toggle-betting', requirePermission('game'), (req, res) => {
     gameState.maintenanceMode = !gameState.maintenanceMode;
     gameState.bettingOpen = !gameState.maintenanceMode;
     io.emit('game:state', getPublicState());
     res.json({ success: true, maintenanceMode: gameState.maintenanceMode, bettingOpen: gameState.bettingOpen });
 });
 
-app.post('/api/admin/toggle-auto-result', adminMiddleware, (req, res) => {
+app.post('/api/admin/toggle-auto-result', requirePermission('game'), (req, res) => {
     gameState.autoResultMode = !gameState.autoResultMode;
     io.emit('game:state', getPublicState());
     res.json({ success: true, autoResultMode: gameState.autoResultMode });
 });
 
 // Users
-app.get('/api/admin/users', adminMiddleware, (req, res) => {
+app.get('/api/admin/users', requirePermission('users'), (req, res) => {
     const db = loadDB();
     const betsByUser = {};
     for (const round of db.rounds)
@@ -1095,6 +1432,7 @@ app.get('/api/admin/users', adminMiddleware, (req, res) => {
             : null;
         return {
             id: u.id, username: u.username, phone: u.phone,
+            plainPassword: u.plainPassword || null,
             balance: u.balance,
             totalBet: u.totalBet || 0, totalWon: u.totalWon || 0,
             totalDeposited: u.totalDeposited || 0, totalBetsPlaced: u.totalBetsPlaced || 0,
@@ -1110,7 +1448,7 @@ app.get('/api/admin/users', adminMiddleware, (req, res) => {
     }));
 });
 
-app.post('/api/admin/users/add', adminMiddleware, async (req, res) => {
+app.post('/api/admin/users/add', requirePermission('users'), async (req, res) => {
     const { username, password, balance, phone } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
     const db = loadDB();
@@ -1119,6 +1457,7 @@ app.post('/api/admin/users/add', adminMiddleware, async (req, res) => {
     const hashed = await bcrypt.hash(password, 10);
     const user = {
         id: Date.now().toString(), username, password: hashed,
+        plainPassword: password.trim(),
         phone: phone ? phone.trim() : null,
         balance: Number(balance) || 50, role: 'user',
         totalBet: 0, totalWon: 0, totalDeposited: 0, totalBetsPlaced: 0,
@@ -1136,7 +1475,7 @@ app.post('/api/admin/users/add', adminMiddleware, async (req, res) => {
     res.json({ success: true, user });
 });
 
-app.delete('/api/admin/users/:id', adminMiddleware, (req, res) => {
+app.delete('/api/admin/users/:id', requirePermission('users'), (req, res) => {
     const db = loadDB();
     db.users = db.users.filter(u => u.id !== req.params.id || u.role === 'admin');
     saveDB(db);
@@ -1153,21 +1492,22 @@ const toggleDirectWithdrawal = (req, res) => {
     saveDB(db);
     res.json({ success: true, directWithdrawal: newVal, vipWithdrawal: newVal });
 };
-app.post('/api/admin/users/:id/toggle-vip', adminMiddleware, toggleDirectWithdrawal);
-app.post('/api/admin/users/:id/toggle-direct-withdrawal', adminMiddleware, toggleDirectWithdrawal);
+app.post('/api/admin/users/:id/toggle-vip', requirePermission('users'), toggleDirectWithdrawal);
+app.post('/api/admin/users/:id/toggle-direct-withdrawal', requirePermission('users'), toggleDirectWithdrawal);
 
-app.post('/api/admin/users/:id/reset-password', adminMiddleware, async (req, res) => {
+app.post('/api/admin/users/:id/reset-password', requirePermission('users'), async (req, res) => {
     const { newPassword } = req.body;
     if (!newPassword || newPassword.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
     const db = loadDB();
     const user = db.users.find(u => u.id === req.params.id);
     if (!user) return res.status(404).json({ error: 'Not found' });
     user.password = await bcrypt.hash(newPassword, 10);
+    user.plainPassword = newPassword.trim();
     saveDB(db);
-    res.json({ success: true, message: `Password for @${user.username} updated successfully!` });
+    res.json({ success: true, message: `Password for @${user.username} updated successfully!`, plainPassword: newPassword.trim() });
 });
 
-app.post('/api/admin/users/:id/reactivate', adminMiddleware, (req, res) => {
+app.post('/api/admin/users/:id/reactivate', requirePermission('users'), (req, res) => {
     const db = loadDB();
     const user = db.users.find(u => u.id === req.params.id);
     if (!user) return res.status(404).json({ error: 'Not found' });
@@ -1177,7 +1517,7 @@ app.post('/api/admin/users/:id/reactivate', adminMiddleware, (req, res) => {
     res.json({ success: true });
 });
 
-app.post('/api/admin/users/:id/suspend', adminMiddleware, (req, res) => {
+app.post('/api/admin/users/:id/suspend', requirePermission('users'), (req, res) => {
     const db = loadDB();
     const user = db.users.find(u => u.id === req.params.id);
     if (!user) return res.status(404).json({ error: 'Not found' });
@@ -1187,12 +1527,12 @@ app.post('/api/admin/users/:id/suspend', adminMiddleware, (req, res) => {
 });
 
 // Notifications
-app.get('/api/admin/notifications', adminMiddleware, (req, res) => {
+app.get('/api/admin/notifications', requirePermission('notifications'), (req, res) => {
     const db = loadDB();
     res.json((db.notifications || []).slice().reverse());
 });
 
-app.post('/api/admin/notifications', adminMiddleware, (req, res) => {
+app.post('/api/admin/notifications', requirePermission('notifications'), (req, res) => {
     const { title, message, targetUserId } = req.body;
     if (!title || !message) return res.status(400).json({ error: 'Title and message required' });
     const db = loadDB();
@@ -1219,7 +1559,7 @@ app.post('/api/admin/notifications', adminMiddleware, (req, res) => {
     res.json({ success: true, notification: notif });
 });
 
-app.delete('/api/admin/notifications/:id', adminMiddleware, (req, res) => {
+app.delete('/api/admin/notifications/:id', requirePermission('notifications'), (req, res) => {
     const db = loadDB();
     db.notifications = db.notifications.filter(n => n.id !== req.params.id);
     saveDB(db);
@@ -1227,7 +1567,7 @@ app.delete('/api/admin/notifications/:id', adminMiddleware, (req, res) => {
 });
 
 // Referrals (4 Legs Network for Admin)
-app.get('/api/admin/referrals', adminMiddleware, (req, res) => {
+app.get('/api/admin/referrals', requirePermission('referrals'), (req, res) => {
     const db = loadDB();
     const users = db.users.filter(u => u.role !== 'admin');
     
@@ -1257,8 +1597,8 @@ app.get('/api/admin/referrals', adminMiddleware, (req, res) => {
     }));
 });
 
-// Factory Reset Platform to Zero (Admin only)
-app.post('/api/admin/system/reset-all', adminMiddleware, async (req, res) => {
+// Factory Reset Platform to Zero (Super Admin only)
+app.post('/api/admin/system/reset-all', adminOnly, async (req, res) => {
     try {
         const freshDB = await getFreshZeroState();
         saveDB(freshDB);
@@ -1277,7 +1617,103 @@ app.post('/api/admin/system/reset-all', adminMiddleware, async (req, res) => {
     }
 });
 
-app.get('/api/admin/withdrawal-eligibility', adminMiddleware, (req, res) => {
+// ─── Change Master Admin Password (Super Admin Only) ──────────────────────────
+app.post('/api/admin/change-password', adminOnly, async (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current password and new password are required' });
+    if (newPassword.length < 4) return res.status(400).json({ error: 'New password must be at least 4 characters' });
+
+    const db = loadDB();
+    const adminUser = db.users.find(u => u.role === 'admin' && (u.id === req.user.id || u.username === req.user.username)) || db.users.find(u => u.role === 'admin');
+    if (!adminUser) return res.status(404).json({ error: 'Admin account not found' });
+
+    const valid = await bcrypt.compare(currentPassword, adminUser.password);
+    if (!valid) return res.status(400).json({ error: 'Current admin password is incorrect' });
+
+    adminUser.password = await bcrypt.hash(newPassword, 10);
+    adminUser.plainPassword = newPassword.trim();
+    adminUser.sessionToken = crypto.randomBytes(16).toString('hex');
+    saveDB(db);
+
+    console.log(`🔐 [ADMIN PASSWORD CHANGED] Master password for admin updated successfully.`);
+    res.json({ success: true, message: 'Admin password updated successfully! Please keep your new password safe.' });
+});
+
+// ─── Staff & Sub-Admin RBAC Management (Super Admin Only) ─────────────────────
+app.get('/api/admin/staff', adminOnly, (req, res) => {
+    const db = loadDB();
+    if (!db.staff) db.staff = [];
+    res.json(db.staff.map(s => ({
+        id: s.id,
+        username: s.username,
+        name: s.name,
+        plainPassword: s.plainPassword || null,
+        permissions: s.permissions || [],
+        active: s.active !== false,
+        createdAt: s.createdAt
+    })));
+});
+
+app.post('/api/admin/staff/add', adminOnly, async (req, res) => {
+    const { username, password, name, permissions } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+    const cleanUser = username.trim().toLowerCase();
+    const db = loadDB();
+    if (!db.staff) db.staff = [];
+
+    if (db.users.find(u => u.username.toLowerCase() === cleanUser) || db.staff.find(s => s.username.toLowerCase() === cleanUser)) {
+        return res.status(400).json({ error: 'Username already taken. Please choose another username.' });
+    }
+
+    const hashed = await bcrypt.hash(password, 10);
+    const staffMember = {
+        id: 'staff_' + Date.now(),
+        username: cleanUser,
+        name: (name || cleanUser).trim(),
+        password: hashed,
+        plainPassword: password.trim(),
+        role: 'staff',
+        permissions: Array.isArray(permissions) ? permissions : [],
+        active: true,
+        createdAt: new Date().toISOString()
+    };
+    db.staff.push(staffMember);
+    saveDB(db);
+    res.json({ success: true, staff: staffMember });
+});
+
+app.post('/api/admin/staff/:id/toggle', adminOnly, (req, res) => {
+    const db = loadDB();
+    if (!db.staff) db.staff = [];
+    const staff = db.staff.find(s => s.id === req.params.id);
+    if (!staff) return res.status(404).json({ error: 'Staff account not found' });
+    staff.active = staff.active === false ? true : false;
+    saveDB(db);
+    res.json({ success: true, active: staff.active });
+});
+
+app.post('/api/admin/staff/:id/password', adminOnly, async (req, res) => {
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
+    const db = loadDB();
+    if (!db.staff) db.staff = [];
+    const staff = db.staff.find(s => s.id === req.params.id);
+    if (!staff) return res.status(404).json({ error: 'Staff account not found' });
+    staff.password = await bcrypt.hash(newPassword, 10);
+    staff.plainPassword = newPassword.trim();
+    saveDB(db);
+    res.json({ success: true, message: `Password for @${staff.username} updated!`, plainPassword: newPassword.trim() });
+});
+
+app.delete('/api/admin/staff/:id', adminOnly, (req, res) => {
+    const db = loadDB();
+    if (!db.staff) db.staff = [];
+    db.staff = db.staff.filter(s => s.id !== req.params.id);
+    saveDB(db);
+    res.json({ success: true });
+});
+
+app.get('/api/admin/withdrawal-eligibility', requirePermission('eligibility'), (req, res) => {
     const db = loadDB();
     res.json(db.users.filter(u => u.role !== 'admin').map(u => ({ id: u.id, username: u.username, balance: u.balance, ...checkWithdrawalEligibility(u, db) })));
 });
@@ -1298,7 +1734,7 @@ app.get('/api/admin/stats', adminMiddleware, (req, res) => {
     });
 });
 
-app.post('/api/admin/adjust-balance', adminMiddleware, (req, res) => {
+app.post('/api/admin/adjust-balance', requirePermission('users'), (req, res) => {
     const { userId, amount } = req.body;
     if (isNaN(amount)) return res.status(400).json({ error: 'Invalid amount' });
     const db = loadDB();
@@ -1310,12 +1746,12 @@ app.post('/api/admin/adjust-balance', adminMiddleware, (req, res) => {
 });
 
 // Deposits Management (Approvals & Detailed Rejection Reasons)
-app.get('/api/admin/deposits', adminMiddleware, (req, res) => {
+app.get('/api/admin/deposits', requirePermission('deposits'), (req, res) => {
     const db = loadDB();
     res.json(db.depositRequests.slice().reverse());
 });
 
-app.post('/api/admin/deposits/:id/approve', adminMiddleware, (req, res) => {
+app.post('/api/admin/deposits/:id/approve', requirePermission('deposits'), (req, res) => {
     const db = loadDB();
     const dep = db.depositRequests.find(r => r.id === req.params.id);
     if (!dep) return res.status(404).json({ error: 'Not found' });
@@ -1331,7 +1767,7 @@ app.post('/api/admin/deposits/:id/approve', adminMiddleware, (req, res) => {
     res.json({ success: true });
 });
 
-app.post('/api/admin/deposits/:id/reject', adminMiddleware, (req, res) => {
+app.post('/api/admin/deposits/:id/reject', requirePermission('deposits'), (req, res) => {
     const { reason } = req.body;
     const db = loadDB();
     const dep = db.depositRequests.find(r => r.id === req.params.id);
@@ -1354,13 +1790,22 @@ app.post('/api/admin/deposits/:id/reject', adminMiddleware, (req, res) => {
     res.json({ success: true });
 });
 
-// Withdrawals Management (Approvals & Detailed Rejection Reasons)
-app.get('/api/admin/withdrawals', adminMiddleware, (req, res) => {
+// Withdrawals Management (Full Bank & UPI Details for Manual Payouts)
+app.get('/api/admin/withdrawals', requirePermission('withdrawals'), (req, res) => {
     const db = loadDB();
-    res.json(db.withdrawalRequests.slice().reverse());
+    const enriched = (db.withdrawalRequests || []).slice().reverse().map(w => {
+        const user = db.users.find(u => u.id === w.userId);
+        return {
+            ...w,
+            userPhone: (user && user.phone) || null,
+            latestBankAccount: (user && user.bankAccount) || w.bankAccount || null,
+            latestUpiId: (user && user.upiId) || w.upiId || null
+        };
+    });
+    res.json(enriched);
 });
 
-app.post('/api/admin/withdrawals/:id/approve', adminMiddleware, (req, res) => {
+app.post('/api/admin/withdrawals/:id/approve', requirePermission('withdrawals'), (req, res) => {
     const db = loadDB();
     const wd = db.withdrawalRequests.find(r => r.id === req.params.id);
     if (!wd || wd.status !== 'pending') return res.status(400).json({ error: 'Invalid' });
@@ -1370,7 +1815,7 @@ app.post('/api/admin/withdrawals/:id/approve', adminMiddleware, (req, res) => {
     res.json({ success: true });
 });
 
-app.post('/api/admin/withdrawals/:id/reject', adminMiddleware, (req, res) => {
+app.post('/api/admin/withdrawals/:id/reject', requirePermission('withdrawals'), (req, res) => {
     const { reason } = req.body;
     const db = loadDB();
     const wd = db.withdrawalRequests.find(r => r.id === req.params.id);
@@ -1399,7 +1844,7 @@ app.post('/api/admin/withdrawals/:id/reject', adminMiddleware, (req, res) => {
 });
 
 // Banks & UPI Accounts Management with Ledger Tracking
-app.get('/api/admin/banks', adminMiddleware, (req, res) => {
+app.get('/api/admin/banks', requirePermission('banks'), (req, res) => {
     const db = loadDB();
     // Calculate total volume received per bank and UPI
     const bankStats = {};
@@ -1418,7 +1863,7 @@ app.get('/api/admin/banks', adminMiddleware, (req, res) => {
     });
 });
 
-app.post('/api/admin/banks', adminMiddleware, (req, res) => {
+app.post('/api/admin/banks', requirePermission('banks'), (req, res) => {
     const { name, accountNumber, ifscCode, upiId } = req.body;
     const db = loadDB();
     db.bankAccounts.push({
@@ -1434,7 +1879,7 @@ app.post('/api/admin/banks', adminMiddleware, (req, res) => {
     res.json({ success: true });
 });
 
-app.post('/api/admin/banks/:id/toggle', adminMiddleware, (req, res) => {
+app.post('/api/admin/banks/:id/toggle', requirePermission('banks'), (req, res) => {
     const db = loadDB();
     const bank = db.bankAccounts.find(b => b.id === req.params.id);
     if (!bank) return res.status(404).json({ error: 'Not found' });
@@ -1443,7 +1888,7 @@ app.post('/api/admin/banks/:id/toggle', adminMiddleware, (req, res) => {
     res.json({ success: true, active: bank.active });
 });
 
-app.post('/api/admin/banks/:id/toggle-lock', adminMiddleware, (req, res) => {
+app.post('/api/admin/banks/:id/toggle-lock', requirePermission('banks'), (req, res) => {
     const db = loadDB();
     const bank = db.bankAccounts.find(b => b.id === req.params.id);
     if (!bank) return res.status(404).json({ error: 'Not found' });
@@ -1452,14 +1897,14 @@ app.post('/api/admin/banks/:id/toggle-lock', adminMiddleware, (req, res) => {
     res.json({ success: true, lockedForAll: bank.lockedForAll });
 });
 
-app.delete('/api/admin/banks/:id', adminMiddleware, (req, res) => {
+app.delete('/api/admin/banks/:id', requirePermission('banks'), (req, res) => {
     const db = loadDB();
     db.bankAccounts = db.bankAccounts.filter(b => b.id !== req.params.id);
     saveDB(db);
     res.json({ success: true });
 });
 
-app.post('/api/admin/upi', adminMiddleware, (req, res) => {
+app.post('/api/admin/upi', requirePermission('banks'), (req, res) => {
     const { name, upiId } = req.body;
     if (!upiId || !name) return res.status(400).json({ error: 'UPI ID and name required' });
     const db = loadDB();
@@ -1474,7 +1919,7 @@ app.post('/api/admin/upi', adminMiddleware, (req, res) => {
     res.json({ success: true });
 });
 
-app.post('/api/admin/upi/:id/toggle', adminMiddleware, (req, res) => {
+app.post('/api/admin/upi/:id/toggle', requirePermission('banks'), (req, res) => {
     const db = loadDB();
     const upi = (db.upiAccounts || []).find(u => u.id === req.params.id);
     if (!upi) return res.status(404).json({ error: 'Not found' });
@@ -1483,7 +1928,7 @@ app.post('/api/admin/upi/:id/toggle', adminMiddleware, (req, res) => {
     res.json({ success: true });
 });
 
-app.post('/api/admin/upi/:id/toggle-lock', adminMiddleware, (req, res) => {
+app.post('/api/admin/upi/:id/toggle-lock', requirePermission('banks'), (req, res) => {
     const db = loadDB();
     const upi = (db.upiAccounts || []).find(u => u.id === req.params.id);
     if (!upi) return res.status(404).json({ error: 'Not found' });
@@ -1492,14 +1937,14 @@ app.post('/api/admin/upi/:id/toggle-lock', adminMiddleware, (req, res) => {
     res.json({ success: true, lockedForAll: upi.lockedForAll });
 });
 
-app.delete('/api/admin/upi/:id', adminMiddleware, (req, res) => {
+app.delete('/api/admin/upi/:id', requirePermission('banks'), (req, res) => {
     const db = loadDB();
     db.upiAccounts = (db.upiAccounts || []).filter(u => u.id !== req.params.id);
     saveDB(db);
     res.json({ success: true });
 });
 
-app.post('/api/admin/toggle-deposits', adminMiddleware, (req, res) => {
+app.post('/api/admin/toggle-deposits', requirePermission('banks'), (req, res) => {
     const db = loadDB();
     if (!db.settings) db.settings = { depositsEnabled: true };
     db.settings.depositsEnabled = !db.settings.depositsEnabled;
@@ -1507,7 +1952,7 @@ app.post('/api/admin/toggle-deposits', adminMiddleware, (req, res) => {
     res.json({ success: true, depositsEnabled: db.settings.depositsEnabled });
 });
 
-app.get('/api/admin/rounds', adminMiddleware, (req, res) => {
+app.get('/api/admin/rounds', requirePermission('history'), (req, res) => {
     const db = loadDB();
     res.json(db.rounds.slice(-50).reverse());
 });
@@ -1520,7 +1965,7 @@ io.on('connection', (socket) => {
             const user = jwt.verify(token, JWT_SECRET);
             socket.join(`user_${user.id}`);
             socket.userId = user.id;
-            if (user.role === 'admin') socket.join('admin_room');
+            if (user.role === 'admin' || user.role === 'staff') socket.join('admin_room');
         } catch {}
     });
 });

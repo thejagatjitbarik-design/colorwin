@@ -9,8 +9,177 @@ let notifCount = 0;
 let currentScreenshotBase64 = null;
 let currentAssignedAccountName = 'Main Deposit Gateway';
 
+// ══════════════════════════════════════════════════════════════════════════════════
+// 🔊 ColorWin Web Audio Ringtone & Sound FX Engine (High Fidelity, Zero Network)
+// ══════════════════════════════════════════════════════════════════════════════════
+const SoundFX = {
+    ctx: null,
+    muted: localStorage.getItem('cw_sound_muted') === 'true',
+
+    init() {
+        if (!this.ctx) {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtx) {
+                this.ctx = new AudioCtx();
+            }
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+            this.ctx.resume().catch(() => {});
+        }
+        this.updateToggleButton();
+    },
+
+    toggle() {
+        this.init();
+        this.muted = !this.muted;
+        localStorage.setItem('cw_sound_muted', this.muted ? 'true' : 'false');
+        this.updateToggleButton();
+        if (!this.muted) {
+            this.playTone(659.25, 0.15, 'sine', 0.18); // Soft pleasant ping on unmute
+        }
+    },
+
+    updateToggleButton() {
+        const btns = document.querySelectorAll('.sound-toggle-btn');
+        btns.forEach(btn => {
+            const isGameBtn = btn.classList.contains('game-sound-btn');
+            if (this.muted) {
+                btn.innerHTML = isGameBtn ? '🔇 <span class="sound-txt">Sound: OFF</span>' : '🔇 <span class="sound-txt">OFF</span>';
+                btn.classList.add('muted');
+            } else {
+                btn.innerHTML = isGameBtn ? '🔊 <span class="sound-txt">Sound: ON</span>' : '🔊 <span class="sound-txt">ON</span>';
+                btn.classList.remove('muted');
+            }
+        });
+    },
+
+    playTone(freq, duration = 0.2, type = 'sine', volume = 0.20, delay = 0) {
+        if (this.muted) return;
+        this.init();
+        if (!this.ctx) return;
+
+        try {
+            const startTime = this.ctx.currentTime + delay;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, startTime);
+
+            // Envelope: rapid attack, smooth sustain & natural decay
+            gain.gain.setValueAtTime(0.0001, startTime);
+            gain.gain.linearRampToValueAtTime(volume, startTime + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+
+            osc.start(startTime);
+            osc.stop(startTime + duration);
+        } catch (e) {
+            // Audio error gracefully handled
+        }
+    },
+
+    // 1. 🎵 Game Opening / Bet Section Ring Tone (Sparkling 5-Tone Casino Chime)
+    playGameOpen() {
+        if (this.muted) return;
+        this.init();
+        if (!this.ctx) return;
+
+        const melody = [
+            { f: 523.25, d: 0.22, t: 0.00 }, // C5
+            { f: 659.25, d: 0.22, t: 0.10 }, // E5
+            { f: 783.99, d: 0.25, t: 0.20 }, // G5
+            { f: 987.77, d: 0.28, t: 0.30 }, // B5
+            { f: 1046.50, d: 0.55, t: 0.40 } // C6
+        ];
+
+        melody.forEach(n => {
+            this.playTone(n.f, n.d, 'triangle', 0.20, n.t);
+            this.playTone(n.f * 1.5, n.d * 0.7, 'sine', 0.08, n.t); // crystal harmonic
+        });
+    },
+
+    // 2. 🏆 Player Win Ring Tone (Triumphant Celebratory Victory Fanfare)
+    playWin() {
+        if (this.muted) return;
+        this.init();
+        if (!this.ctx) return;
+
+        const fanfare = [
+            { f: 523.25, d: 0.18, t: 0.00 }, // C5
+            { f: 659.25, d: 0.18, t: 0.10 }, // E5
+            { f: 783.99, d: 0.18, t: 0.20 }, // G5
+            { f: 1046.50, d: 0.28, t: 0.30 }, // C6
+            { f: 880.00, d: 0.20, t: 0.44 }, // A5
+            { f: 1046.50, d: 0.22, t: 0.56 }, // C6
+            { f: 1318.51, d: 0.70, t: 0.70 }  // E6
+        ];
+
+        fanfare.forEach(n => {
+            this.playTone(n.f, n.d, 'triangle', 0.24, n.t);
+            this.playTone(n.f * 2, n.d * 0.6, 'sine', 0.12, n.t); // bell overtone
+        });
+
+        // Cascading celebratory sparkles
+        const sparkles = [1318.51, 1567.98, 1760.0, 2093.0];
+        sparkles.forEach((f, idx) => {
+            this.playTone(f, 0.25, 'sine', 0.15, 0.88 + idx * 0.08);
+        });
+    },
+
+    // 3. 😔 Player Loss Ring Tone (Smooth Mellow Descending Chime ~2.8s)
+    playLoss() {
+        if (this.muted) return;
+        this.init();
+        if (!this.ctx) return;
+
+        const lossNotes = [
+            { f: 440.00, d: 0.65, t: 0.00 }, // A4
+            { f: 392.00, d: 0.70, t: 0.55 }, // G4
+            { f: 349.23, d: 0.75, t: 1.15 }, // F4
+            { f: 293.66, d: 1.40, t: 1.80 }  // D4 (warm soft fade)
+        ];
+
+        lossNotes.forEach(n => {
+            this.playTone(n.f, n.d, 'sine', 0.22, n.t);
+            this.playTone(n.f * 0.5, n.d * 0.7, 'triangle', 0.15, n.t); // warm low body
+        });
+    },
+
+    // 4. 🪙 Chip / Click Sound
+    playChip() {
+        if (this.muted) return;
+        this.playTone(880, 0.08, 'sine', 0.14);
+        this.playTone(1760, 0.05, 'triangle', 0.08, 0.02);
+    }
+};
+
+// Helper: Toggle Password Visibility
+function toggleInputEye(inputId, btn) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    if (input.type === 'password') {
+        input.type = 'text';
+        btn.textContent = '🙈';
+    } else {
+        input.type = 'password';
+        btn.textContent = '👁️';
+    }
+}
+
 // ─── Init ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+    // Unlock Web Audio on user gesture & sync toggle button state
+    SoundFX.updateToggleButton();
+    const unlockAudio = () => {
+        SoundFX.init();
+        document.removeEventListener('click', unlockAudio);
+        document.removeEventListener('touchstart', unlockAudio);
+    };
+    document.addEventListener('click', unlockAudio, { once: true });
+    document.addEventListener('touchstart', unlockAudio, { once: true });
     // Check referral code in URL
     const params = new URLSearchParams(window.location.search);
     const refCode = params.get('ref');
@@ -62,6 +231,17 @@ document.addEventListener('DOMContentLoaded', () => {
             errEl.classList.add('hidden');
 
             if (isRegister) {
+                const phone = document.getElementById('auth-phone')?.value.trim() || '';
+                if (!phone) {
+                    errEl.textContent = 'Mobile number is mandatory. Duplicate accounts are not allowed.';
+                    errEl.classList.remove('hidden');
+                    return;
+                }
+                if (!/^[0-9]{10}$/.test(phone)) {
+                    errEl.textContent = 'Please enter a valid 10-digit mobile number (numbers only).';
+                    errEl.classList.remove('hidden');
+                    return;
+                }
                 const tcCheckbox = document.getElementById('auth-tc');
                 if (!tcCheckbox || !tcCheckbox.checked) {
                     errEl.textContent = 'Please accept the Terms & Conditions before registering.';
@@ -226,6 +406,10 @@ function connectSocket() {
         selectedColor = null;
         document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
         hideBetStatus();
+        const gamePage = document.getElementById('page-game');
+        if (gamePage && !gamePage.classList.contains('hidden')) {
+            SoundFX.playGameOpen();
+        }
     });
 
     socket.on('timer:tick', (data) => updateTimer(data.timeLeft));
@@ -254,6 +438,16 @@ function connectSocket() {
         document.getElementById('balance-amount').textContent = Math.floor(data.newBalance);
         const commEl = document.getElementById('p-commission');
         if (commEl) commEl.textContent = '₹' + currentUser.totalCommissionEarned.toFixed(2);
+        if (data.legCommissions) {
+            const el1 = document.getElementById('leg1-earned');
+            const el2 = document.getElementById('leg2-earned');
+            const el3 = document.getElementById('leg3-earned');
+            const el4 = document.getElementById('leg4-earned');
+            if (el1 && data.legCommissions.leg1 !== undefined) el1.textContent = `₹${(data.legCommissions.leg1).toFixed(2)}`;
+            if (el2 && data.legCommissions.leg2 !== undefined) el2.textContent = `₹${(data.legCommissions.leg2).toFixed(2)}`;
+            if (el3 && data.legCommissions.leg3 !== undefined) el3.textContent = `₹${(data.legCommissions.leg3).toFixed(2)}`;
+            if (el4 && data.legCommissions.leg4 !== undefined) el4.textContent = `₹${(data.legCommissions.leg4).toFixed(2)}`;
+        }
     });
 
     socket.on('round:result', (data) => {
@@ -276,6 +470,13 @@ function connectSocket() {
             notifCount++;
             updateNotifBadge();
             addNotifToList(notif);
+        }
+    });
+
+    socket.on('ticket:updated', (ticket) => {
+        loadMyTickets();
+        if (currentViewTicketId === ticket.id) {
+            renderTicketConversation(ticket);
         }
     });
 
@@ -346,6 +547,7 @@ function setBettingEnabled(enabled) {
 // ─── Betting ───────────────────────────────────────────────────────────────────
 function selectColor(color) {
     selectedColor = color;
+    SoundFX.playChip();
     document.querySelectorAll('.color-btn').forEach(b => {
         b.classList.toggle('selected', b.dataset.color === color);
     });
@@ -353,8 +555,9 @@ function selectColor(color) {
 
 function setAmount(val) {
     document.getElementById('bet-amount').value = val;
+    SoundFX.playChip();
     document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
-    event.target.classList.add('active');
+    if (window.event && window.event.target) window.event.target.classList.add('active');
 }
 
 async function placeBet() {
@@ -396,6 +599,14 @@ function showResultPopup(data) {
     amtEl.textContent = data.won ? `+₹${data.payout}` : `Result: ${data.color.toUpperCase()}`;
     amtEl.className = `result-amount ${data.won ? 'win' : 'lose'}`;
     popup.classList.remove('hidden');
+
+    // 🔊 Audio Ringtone: Celebration fanfare for win, gentle 2.8s chime for loss
+    if (data.won) {
+        SoundFX.playWin();
+    } else {
+        SoundFX.playLoss();
+    }
+
     setTimeout(() => popup.classList.add('hidden'), 4000);
 }
 
@@ -416,10 +627,13 @@ function showPage(name) {
     document.getElementById(`page-${name}`).classList.add('active');
     document.querySelector(`.nav-btn[data-page="${name}"]`).classList.add('active');
 
-    if (name === 'game') loadColorHistory();
+    if (name === 'game') {
+        loadColorHistory();
+        SoundFX.playGameOpen();
+    }
     if (name === 'wallet') { loadProfile(); loadDepositBank(); }
     if (name === 'history') { loadColorHistory(); loadHistory(); }
-    if (name === 'support') loadSupportInfo();
+    if (name === 'support') { loadSupportInfo(); loadMyTickets(); }
     if (name === 'profile') { loadProfile(); loadReferrals(); }
 }
 
@@ -775,7 +989,8 @@ function resetForgotModalToStep1() {
 
 async function sendForgotPasswordOTP() {
     const identifier = document.getElementById('forgot-identifier').value.trim();
-    if (!identifier) return showMsg('forgot-msg', 'Please enter your Mobile Number or Username', 'error');
+    if (!identifier) return showMsg('forgot-msg', 'Please enter your registered 10-digit Mobile Number', 'error');
+    if (!/^[0-9]{10}$/.test(identifier)) return showMsg('forgot-msg', 'Please enter a valid 10-digit mobile number (numbers only)', 'error');
 
     const btn = document.getElementById('btn-send-otp');
     btn.disabled = true;
@@ -794,11 +1009,12 @@ async function sendForgotPasswordOTP() {
         document.getElementById('forgot-step-1').classList.add('hidden');
         document.getElementById('forgot-step-2').classList.remove('hidden');
         
-        const alertBox = document.getElementById('otp-alert-box');
-        if (alertBox) {
-            alertBox.innerHTML = `✅ <strong>OTP Sent!</strong> For account @<strong>${data.username}</strong><br><span style="font-size:0.95rem;font-weight:800;letter-spacing:2px;display:inline-block;margin-top:4px">Your OTP is: ${data.otp}</span>`;
+        // 🔒 SECURE: OTP IS NEVER DISPLAYED ON SCREEN OR IN CLIENT PAYLOAD
+        const destSpan = document.getElementById('otp-masked-dest');
+        if (destSpan) {
+            destSpan.innerHTML = `6-digit verification code dispatched to <strong>${data.maskedPhone || 'your mobile'}</strong> (@${data.username}). Please check your SMS.`;
         }
-        showMsg('forgot-msg', data.message, 'success');
+        showMsg('forgot-msg', data.message || 'OTP sent successfully to registered mobile number', 'success');
     } catch (err) {
         showMsg('forgot-msg', err.message, 'error');
     } finally {
@@ -1018,4 +1234,185 @@ function logout() {
     currentUser = null;
     if (socket) socket.disconnect();
     location.reload();
+}
+
+// ─── Helpdesk & Support Tickets (User Side) ────────────────────────────────────
+let currentViewTicketId = null;
+let myCachedTickets = [];
+
+function openRaiseTicketModal() {
+    document.getElementById('ticket-subject').value = '';
+    document.getElementById('ticket-ref').value = '';
+    document.getElementById('ticket-message').value = '';
+    const msg = document.getElementById('raise-ticket-msg');
+    if (msg) msg.classList.add('hidden');
+    document.getElementById('raise-ticket-modal').classList.remove('hidden');
+}
+
+function closeRaiseTicketModal() {
+    document.getElementById('raise-ticket-modal').classList.add('hidden');
+}
+
+async function submitNewTicket() {
+    const category = document.getElementById('ticket-category').value;
+    const subject = document.getElementById('ticket-subject').value.trim();
+    const referenceId = document.getElementById('ticket-ref').value.trim();
+    const message = document.getElementById('ticket-message').value.trim();
+
+    if (!subject || !message) {
+        return showMsg('raise-ticket-msg', 'Please enter subject and message', 'error');
+    }
+
+    try {
+        const res = await fetch(API + '/api/tickets/create', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ category, subject, message, referenceId })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        showMsg('raise-ticket-msg', `Ticket #${data.ticket.ticketNumber} submitted! Staff will respond shortly.`, 'success');
+        setTimeout(() => {
+            closeRaiseTicketModal();
+            loadMyTickets();
+        }, 1200);
+    } catch (err) {
+        showMsg('raise-ticket-msg', err.message, 'error');
+    }
+}
+
+async function loadMyTickets() {
+    if (!token) return;
+    try {
+        const res = await fetch(API + '/api/tickets/my', { headers: authHeaders() });
+        const list = await res.json();
+        myCachedTickets = list || [];
+        const container = document.getElementById('my-tickets-container');
+        if (!container) return;
+
+        if (myCachedTickets.length === 0) {
+            container.innerHTML = '<div style="padding:14px;text-align:center;color:var(--text-dim);font-size:0.8rem">No support tickets raised yet. Click "➕ Raise Ticket" if you need help with a transaction.</div>';
+            return;
+        }
+
+        const statusBadges = {
+            open: '<span class="badge" style="background:rgba(241,196,15,0.2);color:#f1c40f">🟡 Open</span>',
+            in_progress: '<span class="badge" style="background:rgba(52,152,219,0.2);color:#3498db">🔵 In Progress</span>',
+            resolved: '<span class="badge" style="background:rgba(46,204,113,0.2);color:#2ecc71">🟢 Resolved</span>',
+            closed: '<span class="badge" style="background:rgba(255,255,255,0.1);color:var(--text-dim)">⚪ Closed</span>'
+        };
+
+        const catIcons = {
+            deposit: '💳 Deposit',
+            withdrawal: '💸 Withdrawal',
+            game: '🎮 Game',
+            account: '👤 Account',
+            other: '❓ General'
+        };
+
+        container.innerHTML = myCachedTickets.map(t => {
+            const repliesCount = (t.messages || []).length;
+            const lastMsg = t.messages && t.messages.length > 0 ? t.messages[t.messages.length - 1] : null;
+            const badge = statusBadges[t.status] || `<span class="badge">${t.status}</span>`;
+
+            return `
+                <div class="ticket-user-card" onclick="openViewTicketModal('${t.id}')">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                        <span style="font-size:0.75rem;font-weight:700;color:var(--primary)">#${t.ticketNumber} • ${catIcons[t.category] || t.category}</span>
+                        ${badge}
+                    </div>
+                    <div style="font-weight:600;font-size:0.85rem;color:#fff;margin-bottom:4px">${escapeHtml(t.subject)}</div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.72rem;color:var(--text-dim)">
+                        <span>💬 ${repliesCount} message(s)${lastMsg ? ` • Last from ${lastMsg.sender === 'admin' ? '🛡️ ' + lastMsg.senderName : 'You'}` : ''}</span>
+                        <span>${new Date(t.updatedAt || t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    } catch {}
+}
+
+function openViewTicketModal(ticketId) {
+    const t = myCachedTickets.find(item => item.id === ticketId);
+    if (!t) return;
+    currentViewTicketId = ticketId;
+
+    document.getElementById('vt-title').textContent = `Ticket #${t.ticketNumber}`;
+    document.getElementById('vt-subject').textContent = t.subject;
+
+    const refBox = document.getElementById('vt-ref-box');
+    const refEl = document.getElementById('vt-ref');
+    if (t.referenceId) {
+        refEl.textContent = t.referenceId;
+        refBox.classList.remove('hidden');
+    } else {
+        refBox.classList.add('hidden');
+    }
+
+    renderTicketConversation(t);
+    document.getElementById('vt-reply-input').value = '';
+    const msg = document.getElementById('vt-reply-msg');
+    if (msg) msg.classList.add('hidden');
+
+    document.getElementById('view-ticket-modal').classList.remove('hidden');
+}
+
+function renderTicketConversation(t) {
+    const badgeEl = document.getElementById('vt-status-badge');
+    if (badgeEl) {
+        badgeEl.textContent = t.status.toUpperCase().replace('_', ' ');
+        badgeEl.style.background = t.status === 'resolved' ? 'rgba(46,204,113,0.2)' : t.status === 'in_progress' ? 'rgba(52,152,219,0.2)' : 'rgba(241,196,15,0.2)';
+        badgeEl.style.color = t.status === 'resolved' ? '#2ecc71' : t.status === 'in_progress' ? '#3498db' : '#f1c40f';
+    }
+
+    const thread = document.getElementById('vt-thread');
+    if (!thread) return;
+
+    thread.innerHTML = (t.messages || []).map(m => {
+        const isUser = m.sender === 'user';
+        return `
+            <div class="ticket-bubble ${isUser ? 'bubble-user' : 'bubble-admin'}">
+                <div style="font-weight:700;font-size:0.75rem;margin-bottom:2px;opacity:0.9">${isUser ? 'You' : '🛡️ ' + escapeHtml(m.senderName || 'Staff')}</div>
+                <div>${escapeHtml(m.text)}</div>
+                <div class="ticket-bubble-meta">
+                    <span>${new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    setTimeout(() => {
+        thread.scrollTop = thread.scrollHeight;
+    }, 50);
+}
+
+function closeViewTicketModal() {
+    document.getElementById('view-ticket-modal').classList.add('hidden');
+    currentViewTicketId = null;
+}
+
+async function submitTicketReplyUser() {
+    if (!currentViewTicketId) return;
+    const input = document.getElementById('vt-reply-input');
+    const message = input.value.trim();
+    if (!message) return;
+
+    try {
+        const res = await fetch(`${API}/api/tickets/${currentViewTicketId}/reply`, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ message })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        input.value = '';
+        const idx = myCachedTickets.findIndex(t => t.id === currentViewTicketId);
+        if (idx !== -1) myCachedTickets[idx] = data.ticket;
+        renderTicketConversation(data.ticket);
+        loadMyTickets();
+    } catch (err) {
+        showMsg('vt-reply-msg', err.message, 'error');
+    }
 }

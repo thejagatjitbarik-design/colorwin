@@ -15,7 +15,10 @@
             <div id="login-error" class="login-error hidden"></div>
             <form id="login-form">
                 <input type="text" id="login-user" placeholder="Username" required>
-                <input type="password" id="login-pass" placeholder="Password" required>
+                <div class="pass-input-wrap">
+                    <input type="password" id="login-pass" placeholder="Password" required>
+                    <button type="button" class="eye-toggle-btn" onclick="toggleInputEye('login-pass', this)" title="Show/Hide Password">👁️</button>
+                </div>
                 <button type="submit" class="btn-primary">Login</button>
             </form>
         </div>
@@ -78,10 +81,88 @@
                 </p>
                 <div class="form-group">
                     <label style="font-size:0.8rem;color:var(--text-dim);display:block;margin-bottom:6px">New Password</label>
-                    <input type="text" id="reset-new-pass" placeholder="Enter new password (min 4 chars)">
+                    <div class="pass-input-wrap">
+                        <input type="text" id="reset-new-pass" placeholder="Enter new password (min 4 chars)">
+                    </div>
                 </div>
                 <button class="btn-primary" onclick="submitPasswordReset()">Update Password</button>
                 <div id="reset-pass-msg" class="msg hidden"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ STAFF PASSWORD MODAL ═══ -->
+    <div id="staff-pass-modal" class="admin-modal hidden">
+        <div class="admin-modal-content" style="max-width:400px">
+            <div class="admin-modal-header">
+                <h3>🔑 Change Staff Password</h3>
+                <button class="modal-close" onclick="closeStaffPassModal()">&times;</button>
+            </div>
+            <div style="padding:16px">
+                <p style="font-size:0.85rem;color:var(--text-dim);margin-bottom:12px">
+                    Updating password for staff: <strong id="staff-pass-target-user">---</strong>
+                </p>
+                <div class="form-group">
+                    <label style="font-size:0.8rem;color:var(--text-dim);display:block;margin-bottom:6px">New Password</label>
+                    <div class="pass-input-wrap">
+                        <input type="password" id="staff-modal-new-pass" placeholder="Enter new password (min 4 chars)">
+                        <button type="button" class="eye-toggle-btn" onclick="toggleInputEye('staff-modal-new-pass', this)">👁️</button>
+                    </div>
+                </div>
+                <button class="btn-primary" onclick="submitStaffPasswordChange()">Update Staff Password</button>
+                <div id="staff-modal-pass-msg" class="msg hidden" style="margin-top:10px"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ MANUAL PAYOUT DETAILS MODAL (SEND MONEY) ═══ -->
+    <div id="payout-detail-modal" class="admin-modal hidden">
+        <div class="admin-modal-content" style="max-width:480px">
+            <div class="admin-modal-header">
+                <h3>💸 Manual Payout Details (Send Money)</h3>
+                <button class="modal-close" onclick="closePayoutModal()">&times;</button>
+            </div>
+            <div style="padding:20px" id="payout-modal-body">
+                <!-- Dynamically populated with full bank & UPI details -->
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ ADMIN TICKET CONVERSATION MODAL ═══ -->
+    <div id="admin-ticket-modal" class="admin-modal hidden">
+        <div class="admin-modal-content" style="max-width:550px;display:flex;flex-direction:column;max-height:85vh">
+            <div class="admin-modal-header">
+                <div>
+                    <h3 id="adm-tk-num" style="margin-bottom:2px">Ticket #TK-00000</h3>
+                    <span id="adm-tk-dept" class="badge">Department</span>
+                </div>
+                <button class="modal-close" onclick="closeAdminTicketModal()">&times;</button>
+            </div>
+            <div style="padding:12px 18px;background:rgba(255,255,255,0.02);border-bottom:1px solid var(--card-border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+                <div style="font-size:0.82rem;color:var(--text-dim)">
+                    <div><strong>Player:</strong> <span id="adm-tk-user" style="color:var(--accent)">@user</span> • Phone: <span id="adm-tk-phone">---</span></div>
+                    <div><strong>Subject:</strong> <span id="adm-tk-subj" style="color:#fff">---</span></div>
+                    <div id="adm-tk-ref-box"><strong>Ref ID:</strong> <span id="adm-tk-ref" style="font-family:monospace">---</span></div>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px">
+                    <label style="font-size:0.75rem;color:var(--text-dim)">Status:</label>
+                    <select id="adm-tk-status-select" onchange="changeAdminTicketStatus()" style="padding:6px 10px;background:rgba(255,255,255,0.08);border:1px solid var(--card-border);border-radius:6px;color:#fff;font-size:0.8rem">
+                        <option value="open">🟡 Open</option>
+                        <option value="in_progress">🔵 In Progress</option>
+                        <option value="resolved">🟢 Resolved</option>
+                        <option value="closed">⚪ Closed</option>
+                    </select>
+                </div>
+            </div>
+            <div id="adm-tk-thread" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;max-height:360px">
+                <!-- Messages -->
+            </div>
+            <div style="padding:14px 18px;border-top:1px solid var(--card-border);background:var(--bg2)">
+                <div style="display:flex;gap:8px">
+                    <input type="text" id="adm-tk-reply-input" placeholder="Type response to player..." style="flex:1;padding:10px;background:rgba(255,255,255,0.06);border:1px solid var(--card-border);border-radius:8px;color:#fff;outline:none">
+                    <button class="btn-primary" onclick="submitAdminTicketReply()" style="padding:10px 16px;white-space:nowrap">Send Reply</button>
+                </div>
+                <div id="adm-tk-msg" class="msg hidden" style="margin-top:6px"></div>
             </div>
         </div>
     </div>
@@ -105,7 +186,11 @@
                 <button class="s-btn" id="s-banks" onclick="showPage('banks')">🏦 Banks & UPI</button>
                 <button class="s-btn" id="s-support" onclick="showPage('support')">📞 Support & Groups</button>
                 <button class="s-btn" id="s-notifications" onclick="showPage('notifications')">🔔 Notifications</button>
+                <button class="s-btn" id="s-tickets" onclick="showPage('tickets')">🎫 Support Tickets</button>
+                <button class="s-btn" id="s-ledger" onclick="showPage('ledger')">💰 Real Cash P&L</button>
                 <button class="s-btn" id="s-history" onclick="showPage('history')">📜 Round History</button>
+                <button class="s-btn" id="s-staff" onclick="showPage('staff')">🛡️ Staff & Roles</button>
+                <button class="s-btn" id="s-settings" onclick="showPage('settings')">⚙️ Admin Security</button>
             </nav>
         </aside>
 
@@ -113,7 +198,10 @@
         <header class="admin-header">
             <button class="hamburger" onclick="toggleSidebar()">☰</button>
             <span class="admin-title" id="page-title">📊 Overview</span>
-            <button class="btn-logout-sm" onclick="adminLogout()">Logout</button>
+            <div style="display:flex;align-items:center;gap:12px">
+                <span id="admin-user-badge" style="font-size:0.8rem;padding:4px 10px;border-radius:20px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:var(--accent)">👑 Admin</span>
+                <button class="btn-logout-sm" onclick="adminLogout()">Logout</button>
+            </div>
         </header>
 
         <!-- Content -->
@@ -133,7 +221,7 @@
                 </div>
 
                 <!-- Platform Reset Card -->
-                <div class="section-card danger-zone" style="margin-top:24px;border:1px solid rgba(231,76,60,0.4);background:rgba(231,76,60,0.06);border-radius:12px;padding:20px">
+                <div id="overview-reset-card" class="section-card danger-zone" style="margin-top:24px;border:1px solid rgba(231,76,60,0.4);background:rgba(231,76,60,0.06);border-radius:12px;padding:20px">
                     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
                         <div>
                             <h3 style="color:var(--danger);margin-bottom:4px">⚠️ Platform Factory Reset (Start From Zero)</h3>
@@ -212,7 +300,10 @@
                     <h3>➕ Add New User</h3>
                     <div class="inline-form">
                         <input type="text" id="new-user-name" placeholder="Username">
-                        <input type="password" id="new-user-pass" placeholder="Password">
+                        <div class="pass-input-wrap" style="max-width:200px">
+                            <input type="password" id="new-user-pass" placeholder="Password">
+                            <button type="button" class="eye-toggle-btn" onclick="toggleInputEye('new-user-pass', this)">👁️</button>
+                        </div>
                         <input type="tel" id="new-user-phone" placeholder="Phone (optional)">
                         <input type="number" id="new-user-bal" placeholder="Balance" value="50">
                         <button class="btn-primary btn-sm" onclick="addUser()">Add User</button>
@@ -224,6 +315,7 @@
                         <thead>
                             <tr>
                                 <th>User</th>
+                                <th>Password</th>
                                 <th>Phone</th>
                                 <th>Balance</th>
                                 <th>Bet / Won</th>
@@ -269,11 +361,11 @@
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th>User</th>
-                                <th>Amount</th>
+                                <th>Player</th>
+                                <th>Requested</th>
                                 <th>Fee (0.5%)</th>
-                                <th>Net Pay</th>
-                                <th>Bank / UPI</th>
+                                <th>Net Transfer (Pay This)</th>
+                                <th>Full Bank & UPI Details</th>
                                 <th>VIP Pass</th>
                                 <th>Status</th>
                                 <th>Date</th>
@@ -466,6 +558,246 @@
                             </tr>
                         </thead>
                         <tbody id="support-groups-tbody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- STAFF & ROLES (RBAC) -->
+            <section id="page-staff" class="page hidden">
+                <div class="section-card">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:16px">
+                        <div>
+                            <h3 style="margin-bottom:4px">🛡️ Create Staff / Sub-Admin Account</h3>
+                            <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+                                Create dedicated staff accounts and assign granular permissions. Staff will only have access to their permitted tabs and operations.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:12px;margin-bottom:16px">
+                        <div class="form-group" style="margin:0">
+                            <label style="font-size:0.8rem;color:var(--text-dim);display:block;margin-bottom:4px">Staff Username</label>
+                            <input type="text" id="staff-user" placeholder="e.g. payment_staff1" style="width:100%">
+                        </div>
+                        <div class="form-group" style="margin:0">
+                            <label style="font-size:0.8rem;color:var(--text-dim);display:block;margin-bottom:4px">Staff Full Name / Shift Note</label>
+                            <input type="text" id="staff-name" placeholder="e.g. Rahul (Payments)" style="width:100%">
+                        </div>
+                        <div class="form-group" style="margin:0">
+                            <label style="font-size:0.8rem;color:var(--text-dim);display:block;margin-bottom:4px">Password</label>
+                            <div style="display:flex;gap:6px">
+                                <div class="pass-input-wrap" style="flex:1">
+                                    <input type="password" id="staff-pass" placeholder="Min 4 chars" style="width:100%">
+                                    <button type="button" class="eye-toggle-btn" onclick="toggleInputEye('staff-pass', this)">👁️</button>
+                                </div>
+                                <button type="button" class="btn-action" onclick="generateStaffPassword()" title="Generate Random Password" style="padding:0 10px;white-space:nowrap">🎲 Auto</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Permissions Assignment -->
+                    <div style="margin-bottom:12px">
+                        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+                            <label style="font-size:0.85rem;font-weight:700;color:var(--text)">Assign Granular Permissions:</label>
+                            <div style="display:flex;gap:6px;flex-wrap:wrap">
+                                <button type="button" class="btn-action" onclick="selectStaffPerms('all')" style="font-size:0.75rem;padding:4px 8px">⭐ Select All</button>
+                                <button type="button" class="btn-action" onclick="selectStaffPerms('deposits_only')" style="font-size:0.75rem;padding:4px 8px;background:rgba(46,204,113,0.15);color:var(--success)">💳 Payments Only</button>
+                                <button type="button" class="btn-action" onclick="selectStaffPerms('withdrawals_only')" style="font-size:0.75rem;padding:4px 8px;background:rgba(230,126,34,0.15);color:var(--gold)">💸 Withdrawals Only</button>
+                                <button type="button" class="btn-action" onclick="selectStaffPerms('none')" style="font-size:0.75rem;padding:4px 8px">❌ Deselect All</button>
+                            </div>
+                        </div>
+
+                        <div class="perm-grid">
+                            <label class="perm-chk-label"><input type="checkbox" class="staff-perm-chk" value="deposits"> 💳 Verify Deposits & Proofs</label>
+                            <label class="perm-chk-label"><input type="checkbox" class="staff-perm-chk" value="withdrawals"> 💸 Withdrawals & Payouts</label>
+                            <label class="perm-chk-label"><input type="checkbox" class="staff-perm-chk" value="game"> 🎮 Game Controls & Results</label>
+                            <label class="perm-chk-label"><input type="checkbox" class="staff-perm-chk" value="users"> 👥 Users & VIP Passes</label>
+                            <label class="perm-chk-label"><input type="checkbox" class="staff-perm-chk" value="banks"> 🏦 Bank & Receiving UPI Accounts</label>
+                            <label class="perm-chk-label"><input type="checkbox" class="staff-perm-chk" value="support"> 📞 Support Contacts & Groups</label>
+                            <label class="perm-chk-label"><input type="checkbox" class="staff-perm-chk" value="notifications"> 🔔 Broadcast Notifications</label>
+                            <label class="perm-chk-label"><input type="checkbox" class="staff-perm-chk" value="referrals"> 🔗 4-Leg Referral Tree</label>
+                            <label class="perm-chk-label"><input type="checkbox" class="staff-perm-chk" value="eligibility"> ✅ Withdrawal Eligibility</label>
+                            <label class="perm-chk-label"><input type="checkbox" class="staff-perm-chk" value="history"> 📜 Round History</label>
+                            <label class="perm-chk-label"><input type="checkbox" class="staff-perm-chk" value="tickets"> 🎫 Helpdesk & Tickets</label>
+                            <label class="perm-chk-label"><input type="checkbox" class="staff-perm-chk" value="ledger"> 💰 Real Cash P&L</label>
+                        </div>
+                    </div>
+
+                    <button class="btn-primary" onclick="createStaffAccount()" style="padding:10px 22px">➕ Create Staff Account</button>
+                    <div id="add-staff-msg" class="msg hidden" style="margin-top:10px"></div>
+                </div>
+
+                <h3 style="margin:24px 0 12px">🛡️ Active Staff & Sub-Admin Accounts</h3>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Staff Username</th>
+                                <th>Name / Note</th>
+                                <th>Password</th>
+                                <th>Permissions</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="staff-tbody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ADMIN SECURITY & SETTINGS -->
+            <section id="page-settings" class="page hidden">
+                <div class="section-card" style="max-width:520px;margin-bottom:24px">
+                    <h3 style="margin-bottom:4px">🔑 Change Admin Panel Password</h3>
+                    <p style="font-size:0.85rem;color:var(--text-dim);margin-bottom:16px">
+                        Update your master Super Admin password. Make sure to keep it secure.
+                    </p>
+
+                    <div class="form-group">
+                        <label style="font-size:0.8rem;color:var(--text-dim);display:block;margin-bottom:4px">Current Password</label>
+                        <div class="pass-input-wrap">
+                            <input type="password" id="admin-curr-pass" placeholder="Enter current admin password">
+                            <button type="button" class="eye-toggle-btn" onclick="toggleInputEye('admin-curr-pass', this)">👁️</button>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label style="font-size:0.8rem;color:var(--text-dim);display:block;margin-bottom:4px">New Password</label>
+                        <div class="pass-input-wrap">
+                            <input type="password" id="admin-new-pass" placeholder="Enter new password (min 4 chars)">
+                            <button type="button" class="eye-toggle-btn" onclick="toggleInputEye('admin-new-pass', this)">👁️</button>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label style="font-size:0.8rem;color:var(--text-dim);display:block;margin-bottom:4px">Confirm New Password</label>
+                        <div class="pass-input-wrap">
+                            <input type="password" id="admin-confirm-pass" placeholder="Confirm new password">
+                            <button type="button" class="eye-toggle-btn" onclick="toggleInputEye('admin-confirm-pass', this)">👁️</button>
+                        </div>
+                    </div>
+
+                    <button class="btn-primary" onclick="submitChangeAdminPassword()" style="padding:12px 20px">🔒 Update Master Password</button>
+                    <div id="admin-pass-msg" class="msg hidden" style="margin-top:12px"></div>
+                </div>
+
+                <!-- Platform Factory Reset Danger Zone -->
+                <div class="section-card danger-zone" style="max-width:700px;border:1px solid rgba(231,76,60,0.4);background:rgba(231,76,60,0.06);border-radius:12px;padding:20px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+                        <div>
+                            <h3 style="color:var(--danger);margin-bottom:4px">⚠️ Platform Factory Reset (Start From Zero)</h3>
+                            <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+                                Completely wipes all user accounts, rounds, bets, and transactions back to initial state. Admin login and bank accounts are preserved. (Super Admin Only)
+                            </p>
+                        </div>
+                        <button class="btn-action btn-reject" style="padding:10px 18px;font-size:0.9rem;font-weight:700" onclick="systemResetAll()">
+                            🔄 Reset Everything to Zero
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SUPPORT HELPDESK TICKETS -->
+            <section id="page-tickets" class="page hidden">
+                <div class="section-card" style="margin-bottom:16px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+                        <div>
+                            <h3 style="margin-bottom:4px">🎫 Support Helpdesk & Tickets</h3>
+                            <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+                                View and resolve user queries. Staff members will automatically see tickets matching their assigned responsibility (e.g. Deposit staff see Deposit queries).
+                            </p>
+                        </div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap">
+                            <select id="tk-filter-dept" onchange="filterAdminTickets()" style="padding:8px 12px;background:rgba(255,255,255,0.06);border:1px solid var(--card-border);border-radius:8px;color:#fff;font-size:0.8rem">
+                                <option value="all">📁 All Departments</option>
+                                <option value="deposit">💳 Deposits Only</option>
+                                <option value="withdrawal">💸 Withdrawals Only</option>
+                                <option value="game">🎮 Game Rounds</option>
+                                <option value="account">👤 Account / Other</option>
+                            </select>
+                            <select id="tk-filter-status" onchange="filterAdminTickets()" style="padding:8px 12px;background:rgba(255,255,255,0.06);border:1px solid var(--card-border);border-radius:8px;color:#fff;font-size:0.8rem">
+                                <option value="all">All Statuses</option>
+                                <option value="open">🟡 Open</option>
+                                <option value="in_progress">🔵 In Progress</option>
+                                <option value="resolved">🟢 Resolved</option>
+                                <option value="closed">⚪ Closed</option>
+                            </select>
+                            <button class="btn-action" onclick="loadAdminTickets()" style="padding:8px 14px">🔄 Refresh</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Ticket #</th>
+                                <th>Player</th>
+                                <th>Department</th>
+                                <th>Subject</th>
+                                <th>Ref ID</th>
+                                <th>Status</th>
+                                <th>Messages</th>
+                                <th>Last Updated</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="admin-tickets-tbody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- REAL CASH FINANCIAL P&L LEDGER -->
+            <section id="page-ledger" class="page hidden">
+                <div class="section-card" style="margin-bottom:20px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+                        <div>
+                            <h3 style="margin-bottom:4px">💰 Real Cash P&L Ledger (Actual Bank / UPI Profit & Loss)</h3>
+                            <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+                                Pure financial accounting tracking <strong>actual money</strong> received in your SBI/HDFC/UPI accounts and sent out via withdrawals. <strong>Promotional signup bonuses (₹50) and milestone commissions are completely excluded</strong> to display your genuine real-money margin.
+                            </p>
+                        </div>
+                        <button class="btn-action" onclick="loadCashLedger()" style="padding:8px 14px">🔄 Refresh Ledger</button>
+                    </div>
+                </div>
+
+                <!-- 4 Financial Summary KPI Cards -->
+                <div class="stats-grid" style="margin-bottom:24px">
+                    <div class="stat-card">
+                        <div class="stat-val" id="cl-total-in" style="color:var(--success)">₹0</div>
+                        <div class="stat-label">Total Real Cash Inflow (Deposits)</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-val" id="cl-total-out" style="color:var(--danger)">₹0</div>
+                        <div class="stat-label">Total Real Cash Outflow (Withdrawals)</div>
+                    </div>
+                    <div class="stat-card profit">
+                        <div class="stat-val" id="cl-net-profit">₹0</div>
+                        <div class="stat-label">Platform Pure Net Cash Profit</div>
+                        <div id="cl-profit-margin" style="font-size:0.75rem;color:var(--text-dim);margin-top:4px">Margin: 0%</div>
+                    </div>
+                    <div class="stat-card warn">
+                        <div class="stat-val" id="cl-total-liability">₹0</div>
+                        <div class="stat-label">Active Wallet Liabilities (Holdings)</div>
+                    </div>
+                </div>
+
+                <h3 style="margin:24px 0 12px">👥 Player-by-Player Real Money Cash Flow</h3>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Player</th>
+                                <th>Mobile Phone</th>
+                                <th>Actual Real Deposited</th>
+                                <th>Actual Real Withdrawn</th>
+                                <th>Current Balance</th>
+                                <th>Platform Net Margin</th>
+                                <th>Real P&L Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cash-ledger-tbody"></tbody>
                     </table>
                 </div>
             </section>

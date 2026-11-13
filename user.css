@@ -121,7 +121,53 @@ body {
     padding: 6px 16px; border-radius: 20px;
     font-weight: 700; font-size: 0.95rem;
 }
-.header-right { position: relative; }
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+}
+.sound-toggle-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--card-border);
+    color: #fff;
+    padding: 5px 12px;
+    border-radius: 16px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.2s ease;
+    user-select: none;
+    outline: none;
+}
+.sound-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+.sound-toggle-btn:active {
+    transform: scale(0.96);
+}
+.sound-toggle-btn.muted {
+    background: rgba(255, 71, 87, 0.12);
+    border-color: rgba(255, 71, 87, 0.3);
+    color: var(--danger);
+    opacity: 0.85;
+}
+.sound-toggle-btn.game-sound-btn {
+    padding: 4px 10px;
+    font-size: 0.72rem;
+    background: rgba(108, 92, 231, 0.15);
+    border-color: rgba(108, 92, 231, 0.3);
+    color: var(--primary);
+}
+.sound-toggle-btn.game-sound-btn.muted {
+    background: rgba(255, 71, 87, 0.12);
+    border-color: rgba(255, 71, 87, 0.3);
+    color: var(--danger);
+}
 .notif-bell {
     background: none; border: none; font-size: 1.4rem;
     cursor: pointer; position: relative; padding: 4px;
@@ -522,4 +568,89 @@ body {
 .maintenance-box .m-icon { font-size: 2.8rem; margin-bottom: 8px; }
 .maintenance-box h3 { color: var(--gold); font-size: 1.15rem; margin-bottom: 6px; }
 .maintenance-box p { color: var(--text-dim); font-size: 0.85rem; line-height: 1.4; }
+
+/* ═══ EYE TOGGLE FOR PASSWORDS ═══ */
+.pass-input-wrap {
+    position: relative;
+    width: 100%;
+    display: flex;
+    align-items: center;
+}
+.pass-input-wrap input {
+    width: 100%;
+    padding-right: 44px !important;
+}
+.eye-toggle-btn {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 1.15rem;
+    padding: 4px;
+    line-height: 1;
+    color: var(--text-dim);
+    transition: opacity 0.2s;
+    user-select: none;
+    z-index: 2;
+}
+.eye-toggle-btn:hover {
+    opacity: 0.8;
+}
+
+/* ═══ TICKET HELPDESK STYLING ═══ */
+.ticket-user-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+    max-height: 280px;
+    overflow-y: auto;
+}
+.ticket-user-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    padding: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: left;
+}
+.ticket-user-card:hover {
+    background: rgba(255,255,255,0.06);
+    border-color: var(--primary);
+}
+.ticket-bubble {
+    padding: 10px 14px;
+    border-radius: 12px;
+    max-width: 85%;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    word-break: break-word;
+}
+.ticket-bubble.bubble-user {
+    align-self: flex-end;
+    background: linear-gradient(135deg, var(--primary), #9b59b6);
+    color: #fff;
+    border-bottom-right-radius: 2px;
+}
+.ticket-bubble.bubble-admin {
+    align-self: flex-start;
+    background: rgba(255,255,255,0.08);
+    color: var(--text);
+    border: 1px solid var(--card-border);
+    border-bottom-left-radius: 2px;
+}
+.ticket-bubble-meta {
+    font-size: 0.7rem;
+    opacity: 0.7;
+    margin-top: 4px;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+
 

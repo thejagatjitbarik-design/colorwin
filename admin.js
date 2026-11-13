@@ -5,6 +5,112 @@ let socket = null;
 let currentRejection = { type: null, id: null };
 let currentResetTargetUserId = null;
 
+// ─── Helpers: Escape & Eye Toggle ──────────────────────────────────────────────
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[m]);
+}
+
+function escapeAttr(str) {
+    if (!str) return '';
+    return String(str).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+function toggleInputEye(inputId, btn) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    if (input.type === 'password') {
+        input.type = 'text';
+        btn.textContent = '🙈';
+    } else {
+        input.type = 'password';
+        btn.textContent = '👁️';
+    }
+}
+
+function getCurrentAdminUser() {
+    try {
+        const raw = localStorage.getItem('cw_admin_user');
+        return raw ? JSON.parse(raw) : null;
+    } catch {
+        return null;
+    }
+}
+
+function applyRolePermissions() {
+    const user = getCurrentAdminUser();
+    const badge = document.getElementById('admin-user-badge');
+    const resetCard = document.getElementById('overview-reset-card');
+
+    if (!user || user.role === 'admin') {
+        if (badge) {
+            badge.textContent = `👑 Super Admin (${user ? '@' + user.username : 'Admin'})`;
+            badge.style.color = 'var(--accent)';
+        }
+        document.querySelectorAll('.s-btn').forEach(b => b.classList.remove('hidden'));
+        if (resetCard) resetCard.classList.remove('hidden');
+        return;
+    }
+
+    // Role is staff
+    const perms = Array.isArray(user.permissions) ? user.permissions : [];
+    const isAll = perms.includes('all');
+    if (badge) {
+        badge.textContent = `🛡️ Staff: ${user.name || user.username} (@${user.username})`;
+        badge.style.color = '#2ecc71';
+    }
+
+    // Super Admin exclusive tabs are hidden for staff
+    const staffBtn = document.getElementById('s-staff');
+    const settingsBtn = document.getElementById('s-settings');
+    if (staffBtn) staffBtn.classList.add('hidden');
+    if (settingsBtn) settingsBtn.classList.add('hidden');
+    if (resetCard) resetCard.classList.add('hidden');
+
+    const permMap = {
+        's-game': 'game',
+        's-users': 'users',
+        's-deposits': 'deposits',
+        's-withdrawals': 'withdrawals',
+        's-referrals': 'referrals',
+        's-eligibility': 'eligibility',
+        's-banks': 'banks',
+        's-support': 'support',
+        's-notifications': 'notifications',
+        's-history': 'history',
+        's-tickets': 'tickets',
+        's-ledger': 'ledger'
+    };
+
+    let firstAllowed = 'overview';
+    for (const [btnId, permKey] of Object.entries(permMap)) {
+        const btn = document.getElementById(btnId);
+        if (btn) {
+            let allowed = isAll || perms.includes(permKey);
+            if (permKey === 'tickets' && (perms.includes('deposits') || perms.includes('withdrawals') || perms.includes('support'))) {
+                allowed = true;
+            }
+            if (permKey === 'ledger' && perms.includes('deposits')) {
+                allowed = true;
+            }
+            btn.classList.toggle('hidden', !allowed);
+            if (allowed && firstAllowed === 'overview') {
+                firstAllowed = permKey;
+            }
+        }
+    }
+
+    const activePage = document.querySelector('.page.active');
+    if (activePage) {
+        const pageName = activePage.id.replace('page-', '');
+        if (pageName === 'staff' || pageName === 'settings' || (permMap[`s-${pageName}`] && !isAll && !perms.includes(permMap[`s-${pageName}`]))) {
+            showPage(firstAllowed);
+        }
+    }
+}
+
 // ─── Init ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('login-form').addEventListener('submit', async (e) => {
@@ -19,9 +125,12 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error);
-            if (data.user.role !== 'admin') throw new Error('Not an admin account');
+            if (data.user.role !== 'admin' && data.user.role !== 'staff') {
+                throw new Error('Access denied: Admin or Staff role required');
+            }
             token = data.token;
             localStorage.setItem('cw_admin_token', token);
+            localStorage.setItem('cw_admin_user', JSON.stringify(data.user));
             document.getElementById('admin-login').classList.add('hidden');
             document.getElementById('admin-panel').classList.remove('hidden');
             initAdmin();
@@ -44,6 +153,7 @@ function authHeaders() {
 
 // ─── Admin Init ────────────────────────────────────────────────────────────────
 function initAdmin() {
+    applyRolePermissions();
     connectSocket();
     loadStats();
     loadBets();
@@ -74,6 +184,15 @@ function connectSocket() {
         loadStats();
         if (document.getElementById('page-history').classList.contains('active')) loadRoundHistory();
     });
+    socket.on('ticket:new', () => {
+        const p = document.getElementById('page-tickets');
+        if (p && p.classList.contains('active')) loadAdminTickets();
+    });
+    socket.on('ticket:updated', (ticket) => {
+        const p = document.getElementById('page-tickets');
+        if (p && p.classList.contains('active')) loadAdminTickets();
+        if (currentAdminTicketId === ticket.id) renderAdminTicketThread(ticket);
+    });
 }
 
 // ─── Navigation ────────────────────────────────────────────────────────────────
@@ -91,7 +210,11 @@ function showPage(name) {
         referrals: '🔗 Referrals', eligibility: '✅ Eligibility',
         banks: '🏦 Banks & UPI', notifications: '🔔 Notifications',
         support: '📞 Support & Groups',
-        history: '📜 Round History'
+        history: '📜 Round History',
+        staff: '🛡️ Staff & Roles',
+        settings: '⚙️ Admin Security',
+        tickets: '🎫 Support Tickets',
+        ledger: '💰 Real Cash P&L'
     };
     document.getElementById('page-title').textContent = titles[name] || name;
 
@@ -106,6 +229,9 @@ function showPage(name) {
     if (name === 'support') loadSupportAdmin();
     if (name === 'notifications') loadNotifications();
     if (name === 'history') loadRoundHistory();
+    if (name === 'staff') loadStaffList();
+    if (name === 'tickets') loadAdminTickets();
+    if (name === 'ledger') loadCashLedger();
 
     document.getElementById('sidebar').classList.remove('open');
 }
@@ -257,6 +383,18 @@ async function loadStats() {
 }
 
 // ─── Users ─────────────────────────────────────────────────────────────────────
+function toggleUserPassword(id, plainPassword) {
+    const el = document.getElementById(`user-pass-${id}`);
+    if (!el) return;
+    if (el.classList.contains('hidden')) {
+        el.textContent = plainPassword || '(legacy/encrypted - click 🔑 Pass to set)';
+        el.classList.remove('hidden');
+    } else {
+        el.textContent = '';
+        el.classList.add('hidden');
+    }
+}
+
 async function loadUsers() {
     try {
         const res = await fetch(API + '/api/admin/users', { headers: authHeaders() });
@@ -264,8 +402,14 @@ async function loadUsers() {
         const tbody = document.getElementById('users-tbody');
         tbody.innerHTML = users.map(u => `
             <tr class="${u.suspended ? 'suspended' : ''}">
-                <td><strong>${u.username}</strong></td>
-                <td style="font-size:0.8rem">${u.phone || '-'}</td>
+                <td><strong>${escapeHtml(u.username)}</strong></td>
+                <td>
+                    <div style="display:flex;align-items:center;gap:6px">
+                        <button class="btn-action" style="padding:4px 8px;font-size:0.75rem;white-space:nowrap" onclick="toggleUserPassword('${u.id}', '${escapeAttr(u.plainPassword || '')}')">👁️ Show</button>
+                        <span id="user-pass-${u.id}" class="pass-val hidden" style="font-size:0.82rem;font-family:monospace;font-weight:700;color:var(--accent)"></span>
+                    </div>
+                </td>
+                <td style="font-size:0.8rem">${escapeHtml(u.phone || '-')}</td>
                 <td>₹${u.balance}</td>
                 <td>₹${u.totalBet} / ₹${u.totalWon}</td>
                 <td style="color:var(--success);font-weight:600">₹${u.totalCommissionEarned || 0}</td>
@@ -284,13 +428,13 @@ async function loadUsers() {
                     <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
                         <input type="number" class="adjust-input" id="adj-${u.id}" placeholder="±">
                         <button class="btn-action btn-approve" onclick="adjustBalance('${u.id}')">Adjust</button>
-                        <button class="btn-action" style="background:rgba(241,196,15,0.15);color:var(--gold);border:1px solid rgba(241,196,15,0.3)" onclick="openResetPassModal('${u.id}','${u.username}')">🔑 Pass</button>
-                        <button class="btn-action" style="background:rgba(108,92,231,0.2);color:var(--primary);border:1px solid rgba(108,92,231,0.3)" onclick="openNotificationForUser('${u.id}','${u.username}')">💬 Message</button>
+                        <button class="btn-action" style="background:rgba(241,196,15,0.15);color:var(--gold);border:1px solid rgba(241,196,15,0.3)" onclick="openResetPassModal('${u.id}','${escapeAttr(u.username)}')">🔑 Pass</button>
+                        <button class="btn-action" style="background:rgba(108,92,231,0.2);color:var(--primary);border:1px solid rgba(108,92,231,0.3)" onclick="openNotificationForUser('${u.id}','${escapeAttr(u.username)}')">💬 Message</button>
                         ${u.suspended
                             ? `<button class="btn-action btn-approve" onclick="reactivateUser('${u.id}')">Reactivate</button>`
                             : `<button class="btn-action btn-reject" onclick="suspendUser('${u.id}')">Suspend</button>`
                         }
-                        <button class="btn-action btn-delete" onclick="deleteUser('${u.id}','${u.username}')">🗑</button>
+                        <button class="btn-action btn-delete" onclick="deleteUser('${u.id}','${escapeAttr(u.username)}')">🗑</button>
                     </div>
                 </td>
             </tr>
@@ -452,35 +596,204 @@ function closeScreenshotModal() {
     document.getElementById('screenshot-modal').classList.add('hidden');
 }
 
-// ─── Withdrawals ───────────────────────────────────────────────────────────────
+// ─── Withdrawals (Full Bank & UPI Details for Manual Payouts) ───────────────────
+let cachedWithdrawals = [];
+let currentPayoutWithdrawal = null;
+
+function copyText(text, label = 'Copied') {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+        alert(`✅ ${label}: "${text}" copied to clipboard!`);
+    }).catch(() => {
+        prompt(`Copy ${label}:`, text);
+    });
+}
+
 async function loadWithdrawals() {
     try {
         const res = await fetch(API + '/api/admin/withdrawals', { headers: authHeaders() });
         const wds = await res.json();
+        cachedWithdrawals = wds;
+
         document.getElementById('withdrawals-tbody').innerHTML = wds.map(w => {
-            const bankInfo = w.bankAccount
-                ? `${w.bankAccount.accountName || ''} (${w.bankAccount.accountNumber || ''})`
-                : (w.upiId || '-');
+            const bank = w.latestBankAccount || w.bankAccount;
+            const upi = w.latestUpiId || w.upiId;
+            const phone = w.userPhone || '-';
             const isVip = w.eligibilitySnapshot?.isVip;
+            const net = w.netAmount || w.amount;
+
+            let paymentDetailsHtml = '';
+            if (bank) {
+                paymentDetailsHtml += `
+                    <div class="payout-bank-box" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:8px 10px;margin-bottom:4px">
+                        <div style="font-weight:700;color:var(--text);font-size:0.85rem">🏦 ${bank.accountName || 'Bank Account'}</div>
+                        <div style="display:flex;align-items:center;gap:6px;margin:3px 0">
+                            <span style="color:var(--text-dim);font-size:0.75rem">A/C:</span>
+                            <span style="font-family:monospace;font-weight:700;color:var(--primary);font-size:0.85rem">${bank.accountNumber || '-'}</span>
+                            ${bank.accountNumber ? `<button class="btn-copy-sm" onclick="copyText('${bank.accountNumber}', 'Account Number')" title="Copy Account Number">📋</button>` : ''}
+                        </div>
+                        <div style="display:flex;align-items:center;gap:6px">
+                            <span style="color:var(--text-dim);font-size:0.75rem">IFSC:</span>
+                            <span style="font-family:monospace;font-weight:600;font-size:0.8rem;color:var(--gold)">${bank.ifscCode || '-'}</span>
+                            ${bank.ifscCode ? `<button class="btn-copy-sm" onclick="copyText('${bank.ifscCode}', 'IFSC Code')" title="Copy IFSC">📋</button>` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+            if (upi) {
+                paymentDetailsHtml += `
+                    <div class="payout-upi-box" style="background:rgba(108,92,231,0.08);border:1px solid rgba(108,92,231,0.25);border-radius:8px;padding:6px 10px;margin-bottom:4px">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+                            <div>
+                                <span style="font-size:0.7rem;color:var(--text-dim)">📲 UPI:</span>
+                                <span style="font-family:monospace;font-weight:700;color:var(--gold);font-size:0.85rem">${upi}</span>
+                            </div>
+                            <button class="btn-copy-sm" onclick="copyText('${upi}', 'UPI ID')" title="Copy UPI ID">📋 Copy</button>
+                        </div>
+                    </div>
+                `;
+            }
+            if (!bank && !upi) {
+                paymentDetailsHtml = '<span style="color:var(--danger);font-size:0.8rem">⚠️ No details provided</span>';
+            }
+
             return `
             <tr>
-                <td><strong>${w.username}</strong></td>
+                <td>
+                    <strong>${w.username}</strong>
+                    <div style="font-size:0.75rem;color:var(--text-dim)">📞 ${phone} ${phone !== '-' ? `<button class="btn-copy-sm" onclick="copyText('${phone}', 'Phone')" title="Copy Phone">📋</button>` : ''}</div>
+                </td>
                 <td>₹${w.amount}</td>
                 <td>₹${w.fee || 0}</td>
-                <td style="color:var(--success);font-weight:700">₹${w.netAmount || w.amount}</td>
-                <td style="font-size:0.75rem">${bankInfo}</td>
+                <td>
+                    <div style="color:var(--success);font-weight:800;font-size:1.05rem">₹${net}</div>
+                    <button class="btn-copy-sm" style="margin-top:2px" onclick="copyText('${net}', 'Amount')">📋 Copy ₹${net}</button>
+                </td>
+                <td style="min-width:250px;text-align:left">
+                    ${paymentDetailsHtml}
+                    <button class="btn-action" style="background:rgba(255,255,255,0.08);font-size:0.7rem;padding:3px 8px;margin-top:4px" onclick="openPayoutModal('${w.id}')">🔍 Full Payout Receipt</button>
+                </td>
                 <td>${isVip ? '<span class="badge badge-vip">⭐ VIP Pass</span>' : '<span style="color:var(--text-dim)">Standard</span>'}</td>
                 <td><span class="badge badge-${w.status}">${w.status.toUpperCase()}</span></td>
                 <td style="font-size:0.75rem">${new Date(w.createdAt).toLocaleString()}</td>
                 <td>
                     ${w.status === 'pending' ? `
-                        <button class="btn-action btn-approve" onclick="approveWithdrawal('${w.id}')">✅ Approve</button>
+                        <button class="btn-action btn-approve" onclick="approveWithdrawal('${w.id}')">✅ Approve Paid</button>
                         <button class="btn-action btn-reject" onclick="openRejectionModal('withdrawal', '${w.id}')">❌ Decline</button>
                     ` : ''}
                 </td>
             </tr>
         `}).join('');
     } catch {}
+}
+
+function openPayoutModal(id) {
+    const wd = cachedWithdrawals.find(w => w.id === id);
+    if (!wd) return;
+    currentPayoutWithdrawal = wd;
+
+    const bank = wd.latestBankAccount || wd.bankAccount;
+    const upi = wd.latestUpiId || wd.upiId;
+    const phone = wd.userPhone || '-';
+    const net = wd.netAmount || wd.amount;
+
+    let fullTextToCopy = `ColorWin Manual Payout: Send ₹${net} to @${wd.username}`;
+    if (bank) {
+        fullTextToCopy += ` | Name: ${bank.accountName || '-'}, A/C: ${bank.accountNumber || '-'}, IFSC: ${bank.ifscCode || '-'}`;
+    }
+    if (upi) {
+        fullTextToCopy += ` | UPI: ${upi}`;
+    }
+    if (phone && phone !== '-') {
+        fullTextToCopy += ` | Phone: ${phone}`;
+    }
+
+    let html = `
+        <div style="background:rgba(46,204,113,0.12);border:1px solid rgba(46,204,113,0.3);border-radius:12px;padding:16px;text-align:center;margin-bottom:16px">
+            <div style="font-size:0.8rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px">Exact Amount to Transfer</div>
+            <div style="font-size:2.2rem;font-weight:800;color:var(--success);margin:4px 0">₹${net}</div>
+            <div style="font-size:0.75rem;color:var(--text-dim)">(Requested: ₹${wd.amount} - 0.5% Fee: ₹${wd.fee || 0})</div>
+            <button class="btn-copy-sm" style="margin-top:8px;padding:5px 14px;font-size:0.85rem;font-weight:700" onclick="copyText('${net}', 'Transfer Amount')">📋 Copy ₹${net}</button>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;background:rgba(255,255,255,0.03);padding:10px 14px;border-radius:8px">
+            <div>
+                <div style="font-size:0.75rem;color:var(--text-dim)">Player Account</div>
+                <strong style="font-size:1rem;color:var(--text)">@${wd.username}</strong>
+            </div>
+            <div>
+                <div style="font-size:0.75rem;color:var(--text-dim)">Phone / Mobile</div>
+                <div style="font-weight:700;color:var(--gold);font-family:monospace">${phone}</div>
+            </div>
+            ${phone && phone !== '-' ? `<button class="btn-copy-sm" onclick="copyText('${phone}', 'Phone Number')">📋 Copy</button>` : ''}
+        </div>
+    `;
+
+    if (bank) {
+        html += `
+            <div style="background:rgba(255,255,255,0.04);border:1px solid var(--card-border);border-radius:10px;padding:14px;margin-bottom:14px">
+                <div style="font-weight:700;color:var(--primary);font-size:0.9rem;margin-bottom:10px">🏦 Full Bank Account Details</div>
+                
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+                    <span style="font-size:0.8rem;color:var(--text-dim)">Account Holder Name:</span>
+                    <strong style="color:var(--text)">${bank.accountName || '-'}</strong>
+                    ${bank.accountName ? `<button class="btn-copy-sm" onclick="copyText('${bank.accountName}', 'Account Holder Name')">📋</button>` : ''}
+                </div>
+                
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+                    <span style="font-size:0.8rem;color:var(--text-dim)">Account Number:</span>
+                    <strong style="font-family:monospace;font-size:1.1rem;color:var(--primary)">${bank.accountNumber || '-'}</strong>
+                    ${bank.accountNumber ? `<button class="btn-copy-sm" onclick="copyText('${bank.accountNumber}', 'Account Number')">📋 Copy A/C</button>` : ''}
+                </div>
+                
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0">
+                    <span style="font-size:0.8rem;color:var(--text-dim)">IFSC Code:</span>
+                    <strong style="font-family:monospace;font-size:1.05rem;color:var(--gold)">${bank.ifscCode || '-'}</strong>
+                    ${bank.ifscCode ? `<button class="btn-copy-sm" onclick="copyText('${bank.ifscCode}', 'IFSC Code')">📋 Copy IFSC</button>` : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    if (upi) {
+        html += `
+            <div style="background:rgba(108,92,231,0.08);border:1px solid rgba(108,92,231,0.25);border-radius:10px;padding:14px;margin-bottom:14px">
+                <div style="font-weight:700;color:var(--gold);font-size:0.9rem;margin-bottom:8px">📲 Full UPI ID</div>
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <span style="font-family:monospace;font-weight:800;color:var(--gold);font-size:1.15rem">${upi}</span>
+                    <button class="btn-copy-sm" style="padding:6px 14px;font-weight:700" onclick="copyText('${upi}', 'UPI ID')">📋 Copy UPI</button>
+                </div>
+            </div>
+        `;
+    }
+
+    html += `
+        <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
+            <button class="btn-primary" onclick="copyText('${fullTextToCopy.replace(/'/g, "\\'")}', 'All Details')">
+                📋 Copy All Transfer Info (One-Click)
+            </button>
+            <div style="display:flex;gap:10px">
+                ${wd.status === 'pending' ? `
+                    <button class="btn-action btn-approve" style="flex:1;padding:12px;font-size:0.9rem" onclick="approveWithdrawal('${wd.id}');closePayoutModal()">
+                        ✅ Mark as Transferred / Approved
+                    </button>
+                    <button class="btn-action btn-reject" style="flex:1;padding:12px;font-size:0.9rem" onclick="closePayoutModal();openRejectionModal('withdrawal', '${wd.id}')">
+                        ❌ Decline
+                    </button>
+                ` : `
+                    <div style="width:100%;text-align:center;padding:10px;color:var(--text-dim);font-size:0.85rem">Current Status: <strong class="badge badge-${wd.status}">${wd.status.toUpperCase()}</strong></div>
+                `}
+            </div>
+        </div>
+    `;
+
+    document.getElementById('payout-modal-body').innerHTML = html;
+    document.getElementById('payout-detail-modal').classList.remove('hidden');
+}
+
+function closePayoutModal() {
+    document.getElementById('payout-detail-modal').classList.add('hidden');
+    currentPayoutWithdrawal = null;
 }
 
 async function approveWithdrawal(id) {
@@ -929,9 +1242,232 @@ async function deleteSupportGroup(id) {
     } catch (err) { alert(err.message); }
 }
 
+// ─── Staff & Sub-Admin Role-Based Management (RBAC) ───────────────────────────
+function selectStaffPerms(type) {
+    const chks = document.querySelectorAll('.staff-perm-chk');
+    chks.forEach(c => {
+        if (type === 'all') c.checked = true;
+        else if (type === 'none') c.checked = false;
+        else if (type === 'deposits_only') c.checked = (c.value === 'deposits');
+        else if (type === 'withdrawals_only') c.checked = (c.value === 'withdrawals');
+    });
+}
+
+function generateStaffPassword() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let res = 'CW@';
+    for (let i = 0; i < 5; i++) res += chars.charAt(Math.floor(Math.random() * chars.length));
+    const passInput = document.getElementById('staff-pass');
+    if (passInput) {
+        passInput.value = res;
+        passInput.type = 'text';
+    }
+}
+
+async function loadStaffList() {
+    try {
+        const res = await fetch(API + '/api/admin/staff', { headers: authHeaders() });
+        const staff = await res.json();
+        const tbody = document.getElementById('staff-tbody');
+        if (!tbody) return;
+
+        if (!staff || staff.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-dim)">No staff accounts created yet. Use the form above to add one.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = staff.map(s => {
+            const permsHtml = (s.permissions || []).map(p => {
+                if (p === 'all') return `<span class="perm-badge perm-all">⭐ ALL ACCESS</span>`;
+                return `<span class="perm-badge">${p}</span>`;
+            }).join(' ') || '<span style="color:var(--text-dim);font-size:0.75rem">No permissions</span>';
+
+            const plainPass = s.plainPassword ? escapeAttr(s.plainPassword) : '';
+
+            return `
+                <tr>
+                    <td><strong>@${escapeHtml(s.username)}</strong></td>
+                    <td style="font-size:0.85rem">${escapeHtml(s.name || '-')}</td>
+                    <td>
+                        <div style="display:flex;align-items:center;gap:6px">
+                            <button class="btn-action" style="padding:4px 8px;font-size:0.75rem;white-space:nowrap" onclick="toggleStaffPassword('${s.id}', '${plainPass}')">👁️ Show</button>
+                            <span id="staff-pass-${s.id}" class="pass-val hidden" style="font-size:0.82rem;font-family:monospace;font-weight:700;color:var(--accent)"></span>
+                        </div>
+                    </td>
+                    <td>${permsHtml}</td>
+                    <td>
+                        <button class="btn-action ${s.active ? 'btn-toggle-active' : ''}" 
+                                style="${s.active ? 'background:rgba(46,204,113,0.2);color:#2ecc71;border:1px solid #2ecc71' : 'background:rgba(231,76,60,0.15);color:var(--danger);border:1px solid rgba(231,76,60,0.3)'}" 
+                                onclick="toggleStaffActive('${s.id}')">
+                            ${s.active ? '✅ Active' : '❌ Disabled'}
+                        </button>
+                    </td>
+                    <td style="font-size:0.75rem;color:var(--text-dim)">${new Date(s.createdAt).toLocaleDateString()}</td>
+                    <td>
+                        <div style="display:flex;gap:4px">
+                            <button class="btn-action" style="background:rgba(241,196,15,0.15);color:var(--gold);border:1px solid rgba(241,196,15,0.3)" onclick="openStaffPassModal('${s.id}', '${escapeAttr(s.username)}')">🔑 Pass</button>
+                            <button class="btn-action btn-delete" onclick="deleteStaffAccount('${s.id}', '${escapeAttr(s.username)}')">🗑️</button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch {}
+}
+
+function toggleStaffPassword(id, plainPassword) {
+    const el = document.getElementById(`staff-pass-${id}`);
+    if (!el) return;
+    if (el.classList.contains('hidden')) {
+        el.textContent = plainPassword || '(click 🔑 Pass to set)';
+        el.classList.remove('hidden');
+    } else {
+        el.textContent = '';
+        el.classList.add('hidden');
+    }
+}
+
+async function createStaffAccount() {
+    const username = document.getElementById('staff-user').value.trim();
+    const name = document.getElementById('staff-name').value.trim();
+    const password = document.getElementById('staff-pass').value;
+    const chks = document.querySelectorAll('.staff-perm-chk:checked');
+    const permissions = Array.from(chks).map(c => c.value);
+
+    if (!username || !password) {
+        return showMsg('add-staff-msg', 'Username and Password are required', 'error');
+    }
+    if (password.length < 4) {
+        return showMsg('add-staff-msg', 'Password must be at least 4 characters', 'error');
+    }
+    if (permissions.length === 0) {
+        return showMsg('add-staff-msg', 'Please assign at least one permission to this staff account', 'error');
+    }
+
+    try {
+        const res = await fetch(API + '/api/admin/staff/add', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ username, name, password, permissions })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        showMsg('add-staff-msg', `Staff account @${username} created successfully!`, 'success');
+        document.getElementById('staff-user').value = '';
+        document.getElementById('staff-name').value = '';
+        document.getElementById('staff-pass').value = '';
+        selectStaffPerms('none');
+        loadStaffList();
+    } catch (err) {
+        showMsg('add-staff-msg', err.message, 'error');
+    }
+}
+
+async function toggleStaffActive(id) {
+    try {
+        const res = await fetch(`${API}/api/admin/staff/${id}/toggle`, {
+            method: 'POST',
+            headers: authHeaders()
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        loadStaffList();
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+let currentStaffPassTargetId = null;
+function openStaffPassModal(id, username) {
+    currentStaffPassTargetId = id;
+    document.getElementById('staff-pass-target-user').textContent = `@${username}`;
+    document.getElementById('staff-modal-new-pass').value = '';
+    document.getElementById('staff-modal-pass-msg').classList.add('hidden');
+    document.getElementById('staff-pass-modal').classList.remove('hidden');
+}
+
+function closeStaffPassModal() {
+    document.getElementById('staff-pass-modal').classList.add('hidden');
+    currentStaffPassTargetId = null;
+}
+
+async function submitStaffPasswordChange() {
+    const newPassword = document.getElementById('staff-modal-new-pass').value;
+    if (!newPassword || newPassword.length < 4) {
+        return showMsg('staff-modal-pass-msg', 'Password must be at least 4 characters', 'error');
+    }
+    try {
+        const res = await fetch(`${API}/api/admin/staff/${currentStaffPassTargetId}/password`, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ newPassword })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        showMsg('staff-modal-pass-msg', data.message || 'Password updated!', 'success');
+        setTimeout(() => {
+            closeStaffPassModal();
+            loadStaffList();
+        }, 1200);
+    } catch (err) {
+        showMsg('staff-modal-pass-msg', err.message, 'error');
+    }
+}
+
+async function deleteStaffAccount(id, username) {
+    if (!confirm(`Are you sure you want to permanently delete staff account @${username}?`)) return;
+    try {
+        const res = await fetch(`${API}/api/admin/staff/${id}`, {
+            method: 'DELETE',
+            headers: authHeaders()
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        loadStaffList();
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+// ─── Super Admin Master Password Change ────────────────────────────────────────
+async function submitChangeAdminPassword() {
+    const currentPassword = document.getElementById('admin-curr-pass').value;
+    const newPassword = document.getElementById('admin-new-pass').value;
+    const confirmPassword = document.getElementById('admin-confirm-pass').value;
+
+    if (!currentPassword || !newPassword) {
+        return showMsg('admin-pass-msg', 'Current and new passwords are required', 'error');
+    }
+    if (newPassword.length < 4) {
+        return showMsg('admin-pass-msg', 'New password must be at least 4 characters', 'error');
+    }
+    if (newPassword !== confirmPassword) {
+        return showMsg('admin-pass-msg', 'New password and confirm password do not match', 'error');
+    }
+
+    try {
+        const res = await fetch(API + '/api/admin/change-password', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ currentPassword, newPassword })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        showMsg('admin-pass-msg', 'Master Admin password successfully updated! Please remember your new password.', 'success');
+        document.getElementById('admin-curr-pass').value = '';
+        document.getElementById('admin-new-pass').value = '';
+        document.getElementById('admin-confirm-pass').value = '';
+    } catch (err) {
+        showMsg('admin-pass-msg', err.message, 'error');
+    }
+}
+
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 function showMsg(id, msg, type) {
     const el = document.getElementById(id);
+    if (!el) return;
     el.textContent = msg;
     el.className = `msg ${type}`;
     el.classList.remove('hidden');
@@ -940,7 +1476,249 @@ function showMsg(id, msg, type) {
 
 function adminLogout() {
     localStorage.removeItem('cw_admin_token');
+    localStorage.removeItem('cw_admin_user');
     token = null;
     if (socket) socket.disconnect();
     location.reload();
+}
+
+// ─── Support Helpdesk Tickets (Admin Side) ─────────────────────────────────────
+let adminTicketsCache = [];
+let currentAdminTicketId = null;
+
+async function loadAdminTickets() {
+    try {
+        const res = await fetch(API + '/api/admin/tickets', { headers: authHeaders() });
+        const list = await res.json();
+        adminTicketsCache = list || [];
+        filterAdminTickets();
+    } catch {}
+}
+
+function filterAdminTickets() {
+    const deptFilter = document.getElementById('tk-filter-dept')?.value || 'all';
+    const statusFilter = document.getElementById('tk-filter-status')?.value || 'all';
+    const tbody = document.getElementById('admin-tickets-tbody');
+    if (!tbody) return;
+
+    let filtered = adminTicketsCache.slice();
+    if (deptFilter !== 'all') {
+        filtered = filtered.filter(t => t.category === deptFilter);
+    }
+    if (statusFilter !== 'all') {
+        filtered = filtered.filter(t => t.status === statusFilter);
+    }
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--text-dim)">No support tickets found matching current filters.</td></tr>`;
+        return;
+    }
+
+    const catBadges = {
+        deposit: '<span class="badge" style="background:rgba(46,204,113,0.15);color:var(--success)">💳 Deposit</span>',
+        withdrawal: '<span class="badge" style="background:rgba(230,126,34,0.15);color:var(--gold)">💸 Withdrawal</span>',
+        game: '<span class="badge" style="background:rgba(155,89,182,0.15);color:#9b59b6">🎮 Game</span>',
+        account: '<span class="badge" style="background:rgba(52,152,219,0.15);color:#3498db">👤 Account</span>',
+        other: '<span class="badge" style="background:rgba(255,255,255,0.08);color:var(--text-dim)">❓ General</span>'
+    };
+
+    const statusBadges = {
+        open: '<span class="badge" style="background:rgba(241,196,15,0.2);color:#f1c40f">🟡 Open</span>',
+        in_progress: '<span class="badge" style="background:rgba(52,152,219,0.2);color:#3498db">🔵 In Progress</span>',
+        resolved: '<span class="badge" style="background:rgba(46,204,113,0.2);color:#2ecc71">🟢 Resolved</span>',
+        closed: '<span class="badge" style="background:rgba(255,255,255,0.1);color:var(--text-dim)">⚪ Closed</span>'
+    };
+
+    tbody.innerHTML = filtered.map(t => {
+        const msgCount = (t.messages || []).length;
+        const lastMsg = t.messages && t.messages.length > 0 ? t.messages[t.messages.length - 1] : null;
+
+        return `
+            <tr>
+                <td><strong>#${t.ticketNumber}</strong></td>
+                <td>
+                    <strong>@${escapeHtml(t.username)}</strong>
+                </td>
+                <td>${catBadges[t.category] || t.category}</td>
+                <td>
+                    <div style="font-weight:600;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(t.subject)}</div>
+                </td>
+                <td style="font-family:monospace;font-size:0.8rem">${t.referenceId ? escapeHtml(t.referenceId) : '-'}</td>
+                <td>${statusBadges[t.status] || t.status}</td>
+                <td style="font-size:0.8rem">
+                    💬 ${msgCount}${lastMsg ? `<br><span style="font-size:0.7rem;color:var(--text-dim)">Last by ${lastMsg.sender === 'admin' ? '🛡️ ' + lastMsg.senderName : 'User'}</span>` : ''}
+                </td>
+                <td style="font-size:0.75rem;color:var(--text-dim)">${new Date(t.updatedAt || t.createdAt).toLocaleString()}</td>
+                <td>
+                    <button class="btn-action" style="background:rgba(108,92,231,0.2);color:var(--primary);border:1px solid rgba(108,92,231,0.4)" onclick="openAdminTicketModal('${t.id}')">💬 Open</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function openAdminTicketModal(ticketId) {
+    const t = adminTicketsCache.find(item => item.id === ticketId);
+    if (!t) return;
+    currentAdminTicketId = ticketId;
+
+    document.getElementById('adm-tk-num').textContent = `Ticket #${t.ticketNumber}`;
+    document.getElementById('adm-tk-dept').textContent = t.category.toUpperCase();
+    document.getElementById('adm-tk-user').textContent = `@${t.username}`;
+    document.getElementById('adm-tk-subj').textContent = t.subject;
+
+    const phoneEl = document.getElementById('adm-tk-phone');
+    if (phoneEl) phoneEl.textContent = t.phone || '-';
+
+    const refBox = document.getElementById('adm-tk-ref-box');
+    const refEl = document.getElementById('adm-tk-ref');
+    if (t.referenceId) {
+        refEl.textContent = t.referenceId;
+        refBox.classList.remove('hidden');
+    } else {
+        refBox.classList.add('hidden');
+    }
+
+    const sel = document.getElementById('adm-tk-status-select');
+    if (sel) sel.value = t.status || 'open';
+
+    renderAdminTicketThread(t);
+    document.getElementById('adm-tk-reply-input').value = '';
+    const msg = document.getElementById('adm-tk-msg');
+    if (msg) msg.classList.add('hidden');
+
+    document.getElementById('admin-ticket-modal').classList.remove('hidden');
+}
+
+function renderAdminTicketThread(t) {
+    const thread = document.getElementById('adm-tk-thread');
+    if (!thread) return;
+
+    thread.innerHTML = (t.messages || []).map(m => {
+        const isAdmin = m.sender === 'admin';
+        return `
+            <div class="ticket-bubble ${isAdmin ? 'bubble-user' : 'bubble-admin'}" style="${isAdmin ? 'align-self:flex-end;background:linear-gradient(135deg, var(--primary), #9b59b6);color:#fff' : 'align-self:flex-start;background:rgba(255,255,255,0.06);color:var(--text)'}">
+                <div style="font-weight:700;font-size:0.75rem;margin-bottom:2px">${isAdmin ? '🛡️ ' + escapeHtml(m.senderName || 'Staff') : '@' + escapeHtml(m.senderName || 'Player')}</div>
+                <div>${escapeHtml(m.text)}</div>
+                <div class="ticket-bubble-meta">
+                    <span>${new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    setTimeout(() => {
+        thread.scrollTop = thread.scrollHeight;
+    }, 50);
+}
+
+function closeAdminTicketModal() {
+    document.getElementById('admin-ticket-modal').classList.add('hidden');
+    currentAdminTicketId = null;
+}
+
+async function submitAdminTicketReply() {
+    if (!currentAdminTicketId) return;
+    const input = document.getElementById('adm-tk-reply-input');
+    const message = input.value.trim();
+    if (!message) return;
+
+    const statusSel = document.getElementById('adm-tk-status-select');
+    const status = statusSel ? statusSel.value : 'in_progress';
+
+    try {
+        const res = await fetch(`${API}/api/admin/tickets/${currentAdminTicketId}/reply`, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ message, status })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        input.value = '';
+        const idx = adminTicketsCache.findIndex(t => t.id === currentAdminTicketId);
+        if (idx !== -1) adminTicketsCache[idx] = data.ticket;
+        renderAdminTicketThread(data.ticket);
+        filterAdminTickets();
+        showMsg('adm-tk-msg', 'Reply sent to player!', 'success');
+    } catch (err) {
+        showMsg('adm-tk-msg', err.message, 'error');
+    }
+}
+
+async function changeAdminTicketStatus() {
+    if (!currentAdminTicketId) return;
+    const status = document.getElementById('adm-tk-status-select').value;
+    try {
+        const res = await fetch(`${API}/api/admin/tickets/${currentAdminTicketId}/status`, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ status })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        const idx = adminTicketsCache.findIndex(t => t.id === currentAdminTicketId);
+        if (idx !== -1) adminTicketsCache[idx] = data.ticket;
+        filterAdminTickets();
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+// ─── Real Cash Financial P&L Ledger (Actual Inflows & Outflows) ───────────────
+async function loadCashLedger() {
+    try {
+        const res = await fetch(API + '/api/admin/cash-ledger', { headers: authHeaders() });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        // Update KPI Cards
+        const totalIn = document.getElementById('cl-total-in');
+        const totalOut = document.getElementById('cl-total-out');
+        const netProfitEl = document.getElementById('cl-net-profit');
+        const profitMarginEl = document.getElementById('cl-profit-margin');
+        const totalLiability = document.getElementById('cl-total-liability');
+
+        if (totalIn) totalIn.textContent = `₹${data.totalRealDeposits}`;
+        if (totalOut) totalOut.textContent = `₹${data.totalRealWithdrawals}`;
+        
+        if (netProfitEl) {
+            netProfitEl.textContent = `₹${data.netCashProfit}`;
+            netProfitEl.style.color = data.netCashProfit >= 0 ? 'var(--success)' : 'var(--danger)';
+        }
+
+        if (profitMarginEl) profitMarginEl.textContent = `Pure Bank Margin: ${data.profitMarginPct}%`;
+        if (totalLiability) totalLiability.textContent = `₹${data.totalUserBalanceLiability}`;
+
+        // Populate Table
+        const tbody = document.getElementById('cash-ledger-tbody');
+        if (!tbody) return;
+
+        if (!data.userLedger || data.userLedger.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-dim)">No real cash deposits or withdrawals recorded yet.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = data.userLedger.map(u => {
+            const isProfit = u.netContribution >= 0;
+            const statusHtml = isProfit
+                ? `<span class="badge" style="background:rgba(46,204,113,0.2);color:#2ecc71;font-weight:700">🟢 Platform Profit</span>`
+                : `<span class="badge" style="background:rgba(231,76,60,0.2);color:var(--danger);font-weight:700">🔴 Platform Loss</span>`;
+
+            return `
+                <tr>
+                    <td><strong>@${escapeHtml(u.username)}</strong></td>
+                    <td style="font-size:0.85rem">${escapeHtml(u.phone)}</td>
+                    <td style="color:var(--success);font-weight:700">₹${u.totalDeposited} <span style="font-size:0.75rem;color:var(--text-dim);font-weight:400">(${u.depositCount} deps)</span></td>
+                    <td style="color:var(--gold);font-weight:700">₹${u.totalWithdrawn} <span style="font-size:0.75rem;color:var(--text-dim);font-weight:400">(${u.withdrawalCount} wds)</span></td>
+                    <td style="font-weight:600">₹${u.currentBalance}</td>
+                    <td style="color:${isProfit ? 'var(--success)' : 'var(--danger)'};font-weight:800;font-size:0.95rem">
+                        ${isProfit ? '+' : ''}₹${u.netContribution}
+                    </td>
+                    <td>${statusHtml}</td>
+                </tr>
+            `;
+        }).join('');
+    } catch {}
 }
