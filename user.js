@@ -114,8 +114,10 @@ async function initApp() {
     connectSocket();
     loadNotifications();
     loadDepositBank();
+    loadColorHistory();
     loadHistory();
     loadReferrals();
+    loadSupportInfo();
 }
 
 function authHeaders() {
@@ -197,13 +199,13 @@ function updateUI() {
         const list = document.getElementById('eligibility-list');
         list.innerHTML = '';
 
-        if (elig.isVip) {
-            list.innerHTML = `<div class="elig-item"><span class="elig-icon">⭐</span><span style="color:var(--gold);font-weight:700">VIP Fast Pass Active (Restrictions Bypassed!)</span></div>`;
+        if (elig.directWithdrawal || elig.isVip) {
+            list.innerHTML = `<div class="elig-item"><span class="elig-icon">👑</span><span style="color:var(--gold);font-weight:700">Direct VIP Access Active (Referral & Deposit Targets Bypassed!)</span></div>`;
         } else {
             const checks = [
                 { label: `Balance ≥ ₹300`, ok: elig.balance >= 300 },
-                { label: `Deposits ≥ ₹200 (₹${elig.totalDeposited})`, ok: elig.totalDeposited >= 200 },
-                { label: `3+ active referrals (${elig.activeReferrals})`, ok: elig.activeReferrals >= 3 }
+                { label: `Total deposits ≥ ₹200 (₹${elig.totalDeposited})`, ok: elig.totalDeposited >= 200 },
+                { label: `3+ active referrals (${elig.activeReferrals}/3)`, ok: elig.activeReferrals >= 3 }
             ];
             checks.forEach(c => {
                 list.innerHTML += `<div class="elig-item"><span class="elig-icon">${c.ok ? '✅' : '❌'}</span><span>${c.label}</span></div>`;
@@ -254,7 +256,10 @@ function connectSocket() {
         if (commEl) commEl.textContent = '₹' + currentUser.totalCommissionEarned.toFixed(2);
     });
 
-    socket.on('round:result', (data) => addResultDot(data.result));
+    socket.on('round:result', (data) => {
+        addResultDot(data.result);
+        loadColorHistory();
+    });
 
     socket.on('deposit:approved', (data) => {
         currentUser.balance = data.newBalance;
@@ -411,8 +416,10 @@ function showPage(name) {
     document.getElementById(`page-${name}`).classList.add('active');
     document.querySelector(`.nav-btn[data-page="${name}"]`).classList.add('active');
 
+    if (name === 'game') loadColorHistory();
     if (name === 'wallet') { loadProfile(); loadDepositBank(); }
-    if (name === 'history') loadHistory();
+    if (name === 'history') { loadColorHistory(); loadHistory(); }
+    if (name === 'support') loadSupportInfo();
     if (name === 'profile') { loadProfile(); loadReferrals(); }
 }
 
@@ -667,57 +674,275 @@ async function loadHistory() {
     } catch {}
 }
 
-// ─── Referrals & Commission Ledger ─────────────────────────────────────────────
+// ─── Referrals & Commission Ledger (4 Legs) ──────────────────────────────────
 async function loadReferrals() {
     try {
         const res = await fetch(API + '/api/my-referrals', { headers: authHeaders() });
         const data = await res.json();
-        document.getElementById('ref-total').textContent = data.totalCount;
-        document.getElementById('ref-active').textContent = data.activeCount;
-        const list = document.getElementById('ref-list');
+        
+        // 4 Legs Breakdown
+        if (data.legs) {
+            const l1 = data.legs.leg1 || { count: 0, earned: 0 };
+            const l2 = data.legs.leg2 || { count: 0, earned: 0 };
+            const l3 = data.legs.leg3 || { count: 0, earned: 0 };
+            const l4 = data.legs.leg4 || { count: 0, earned: 0 };
 
-        if (data.referrals.length === 0) {
-            list.innerHTML = '<div class="empty-state" style="padding:10px">No referrals yet. Share your code!</div>';
-        } else {
-            list.innerHTML = data.referrals.map(r => `
-                <div class="ref-item">
-                    <div>
-                        <strong>${r.username}</strong>
-                        <div style="font-size:0.75rem;color:var(--text-dim)">Wagered: ₹${r.totalBet || 0} / ₹300</div>
+            const elL1Count = document.getElementById('leg1-count');
+            const elL1Earned = document.getElementById('leg1-earned');
+            if (elL1Count) elL1Count.textContent = l1.count;
+            if (elL1Earned) elL1Earned.textContent = `₹${l1.earned}`;
+
+            const elL2Count = document.getElementById('leg2-count');
+            const elL2Earned = document.getElementById('leg2-earned');
+            if (elL2Count) elL2Count.textContent = l2.count;
+            if (elL2Earned) elL2Earned.textContent = `₹${l2.earned}`;
+
+            const elL3Count = document.getElementById('leg3-count');
+            const elL3Earned = document.getElementById('leg3-earned');
+            if (elL3Count) elL3Count.textContent = l3.count;
+            if (elL3Earned) elL3Earned.textContent = `₹${l3.earned}`;
+
+            const elL4Count = document.getElementById('leg4-count');
+            const elL4Earned = document.getElementById('leg4-earned');
+            if (elL4Count) elL4Count.textContent = l4.count;
+            if (elL4Earned) elL4Earned.textContent = `₹${l4.earned}`;
+        }
+
+        const refTotal = document.getElementById('ref-total');
+        const refActive = document.getElementById('ref-active');
+        if (refTotal) refTotal.textContent = data.leg1Count || (data.referrals ? data.referrals.length : 0);
+        if (refActive) refActive.textContent = data.activeCount || 0;
+
+        const list = document.getElementById('ref-list');
+        if (list) {
+            const directRefs = data.referrals || [];
+            if (directRefs.length === 0) {
+                list.innerHTML = '<div class="empty-state" style="padding:10px">No direct referrals yet. Share your code!</div>';
+            } else {
+                list.innerHTML = directRefs.map(r => `
+                    <div class="ref-item">
+                        <div>
+                            <strong>${r.username}</strong>
+                            <div style="font-size:0.75rem;color:var(--text-dim)">Wagered: ₹${r.totalBet || 0} / ₹300</div>
+                        </div>
+                        <span class="${r.bonusPaid ? 'ref-active' : 'ref-inactive'}">
+                            ${r.bonusPaid ? '✅ ₹50 Unlocked' : '⏳ In Progress'}
+                        </span>
                     </div>
-                    <span class="${r.bonusPaid ? 'ref-active' : 'ref-inactive'}">
-                        ${r.bonusPaid ? '✅ ₹50 Unlocked' : '⏳ In Progress'}
-                    </span>
-                </div>
-            `).join('');
+                `).join('');
+            }
         }
     } catch {}
 }
 
-// ─── Forgot Password & Modals ──────────────────────────────────────────────────
+// ─── Forgot Password OTP Flow ──────────────────────────────────────────────────
+let forgotPasswordUserId = null;
+
+function openTcModal(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    document.getElementById('tc-modal').classList.remove('hidden');
+}
+
 function closeTcModal() {
     document.getElementById('tc-modal').classList.add('hidden');
+}
+
+function openForgotModal(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    resetForgotModalToStep1();
+    document.getElementById('forgot-modal').classList.remove('hidden');
 }
 
 function closeForgotModal() {
     document.getElementById('forgot-modal').classList.add('hidden');
 }
 
-async function submitForgotPassword() {
-    const username = document.getElementById('forgot-user').value.trim();
-    const phone = document.getElementById('forgot-phone').value.trim();
-    if (!username) return showMsg('forgot-msg', 'Username is required', 'error');
+function resetForgotModalToStep1() {
+    forgotPasswordUserId = null;
+    const step1 = document.getElementById('forgot-step-1');
+    const step2 = document.getElementById('forgot-step-2');
+    const msg = document.getElementById('forgot-msg');
+    if (step1) step1.classList.remove('hidden');
+    if (step2) step2.classList.add('hidden');
+    if (msg) msg.classList.add('hidden');
+    const input = document.getElementById('forgot-identifier');
+    if (input) input.value = '';
+    const otpInput = document.getElementById('forgot-otp-input');
+    if (otpInput) otpInput.value = '';
+    const newPassInput = document.getElementById('forgot-new-password');
+    if (newPassInput) newPassInput.value = '';
+}
+
+async function sendForgotPasswordOTP() {
+    const identifier = document.getElementById('forgot-identifier').value.trim();
+    if (!identifier) return showMsg('forgot-msg', 'Please enter your Mobile Number or Username', 'error');
+
+    const btn = document.getElementById('btn-send-otp');
+    btn.disabled = true;
+    btn.textContent = '⏳ Sending OTP...';
 
     try {
-        const res = await fetch(API + '/api/forgot-password', {
+        const res = await fetch(API + '/api/forgot-password/send-otp', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, phone })
+            body: JSON.stringify({ identifier })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
+
+        forgotPasswordUserId = data.userId;
+        document.getElementById('forgot-step-1').classList.add('hidden');
+        document.getElementById('forgot-step-2').classList.remove('hidden');
+        
+        const alertBox = document.getElementById('otp-alert-box');
+        if (alertBox) {
+            alertBox.innerHTML = `✅ <strong>OTP Sent!</strong> For account @<strong>${data.username}</strong><br><span style="font-size:0.95rem;font-weight:800;letter-spacing:2px;display:inline-block;margin-top:4px">Your OTP is: ${data.otp}</span>`;
+        }
         showMsg('forgot-msg', data.message, 'success');
-    } catch (err) { showMsg('forgot-msg', err.message, 'error'); }
+    } catch (err) {
+        showMsg('forgot-msg', err.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '📲 Send 6-Digit OTP';
+    }
+}
+
+async function submitVerifyResetPassword() {
+    if (!forgotPasswordUserId) return showMsg('forgot-msg', 'Session expired. Please request OTP again.', 'error');
+    const otp = document.getElementById('forgot-otp-input').value.trim();
+    const newPassword = document.getElementById('forgot-new-password').value;
+
+    if (!otp || otp.length !== 6) return showMsg('forgot-msg', 'Please enter the 6-digit OTP code', 'error');
+    if (!newPassword || newPassword.length < 4) return showMsg('forgot-msg', 'New password must be at least 4 characters', 'error');
+
+    const btn = document.getElementById('btn-reset-pass');
+    btn.disabled = true;
+    btn.textContent = '⏳ Verifying...';
+
+    try {
+        const res = await fetch(API + '/api/forgot-password/verify-reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                userId: forgotPasswordUserId,
+                otp,
+                newPassword
+            })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        alert('🎉 Password reset successful! You can now log in with your new password.');
+        closeForgotModal();
+        const usernameInput = document.getElementById('auth-username');
+        if (usernameInput) usernameInput.value = '';
+    } catch (err) {
+        showMsg('forgot-msg', err.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '✅ Verify OTP & Reset Password';
+    }
+}
+
+// ─── Color Outcome History ─────────────────────────────────────────────────────
+async function loadColorHistory() {
+    try {
+        const res = await fetch(API + '/api/color-history');
+        const list = await res.json();
+
+        // 1. Update Game Screen Recent 10 Winning Colors
+        const recentContainer = document.getElementById('game-recent-colors-list');
+        if (recentContainer) {
+            if (list.length === 0) {
+                recentContainer.innerHTML = '<span style="font-size:0.75rem;color:var(--text-dim)">Round outcomes will appear here...</span>';
+            } else {
+                recentContainer.innerHTML = list.slice(0, 10).map(r => `
+                    <div style="flex:0 0 auto;display:flex;flex-direction:column;align-items:center;background:rgba(255,255,255,0.04);border:1px solid var(--card-border);border-radius:10px;padding:6px 10px;min-width:55px">
+                        <span style="font-size:0.65rem;color:var(--text-dim)">#${String(r.id).slice(-4)}</span>
+                        <div class="strip-dot ${r.result}" style="width:28px;height:28px;font-size:0.75rem;margin:4px 0">${r.result.charAt(0).toUpperCase()}</div>
+                        <span style="font-size:0.7rem;font-weight:700;text-transform:capitalize;color:${r.result === 'red' ? '#e74c3c' : r.result === 'green' ? '#2ecc71' : '#9b59b6'}">${r.result}</span>
+                    </div>
+                `).join('');
+            }
+        }
+
+        // 2. Update History Screen Table
+        const tbody = document.getElementById('game-outcomes-tbody');
+        if (tbody) {
+            if (list.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text-dim)">No game rounds settled yet</td></tr>';
+            } else {
+                tbody.innerHTML = list.map(r => `
+                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05)">
+                        <td style="padding:10px 8px;font-family:monospace;font-weight:700">#${String(r.id).slice(-6)}</td>
+                        <td style="padding:10px 8px;text-align:center">
+                            <span class="badge" style="background:${r.result === 'red' ? 'rgba(231,76,60,0.2)' : r.result === 'green' ? 'rgba(46,204,113,0.2)' : 'rgba(155,89,182,0.2)'};color:${r.result === 'red' ? '#e74c3c' : r.result === 'green' ? '#2ecc71' : '#9b59b6'};font-weight:700;text-transform:uppercase;padding:4px 10px;border-radius:6px">
+                                ${r.result === 'red' ? '🔴 RED' : r.result === 'green' ? '🟢 GREEN' : '🟣 VIOLET'}
+                            </span>
+                        </td>
+                        <td style="padding:10px 8px;text-align:right;font-size:0.75rem;color:var(--text-dim)">${new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
+                    </tr>
+                `).join('');
+            }
+        }
+    } catch {}
+}
+
+function switchHistoryTab(tab) {
+    const gamePanel = document.getElementById('panel-game-history');
+    const myPanel = document.getElementById('panel-my-history');
+    const tabGame = document.getElementById('tab-game-outcomes');
+    const tabMy = document.getElementById('tab-my-bets');
+
+    if (tab === 'game') {
+        if (gamePanel) gamePanel.classList.remove('hidden');
+        if (myPanel) myPanel.classList.add('hidden');
+        if (tabGame) tabGame.classList.add('active');
+        if (tabMy) tabMy.classList.remove('active');
+        loadColorHistory();
+    } else {
+        if (gamePanel) gamePanel.classList.add('hidden');
+        if (myPanel) myPanel.classList.remove('hidden');
+        if (tabGame) tabGame.classList.remove('active');
+        if (tabMy) tabMy.classList.add('active');
+        loadHistory();
+    }
+}
+
+// ─── Dynamic Support Info ──────────────────────────────────────────────────────
+async function loadSupportInfo() {
+    try {
+        const res = await fetch(API + '/api/support-info');
+        const data = await res.json();
+
+        const channelsList = document.getElementById('support-channels-list');
+        if (channelsList && data.contacts) {
+            channelsList.innerHTML = data.contacts.map(c => `
+                <a href="${c.link}" target="_blank" class="support-item ${c.type}">
+                    <div class="support-icon">${c.type === 'email' ? '✉️' : '📱'}</div>
+                    <div class="support-detail">
+                        <div class="support-label">${c.title}</div>
+                        <div class="support-value">${c.value}</div>
+                    </div>
+                    <div class="support-arrow">→</div>
+                </a>
+            `).join('');
+        }
+
+        const groupsList = document.getElementById('support-groups-list');
+        if (groupsList && data.groups) {
+            groupsList.innerHTML = data.groups.map(g => `
+                <a href="${g.link}" target="_blank" class="support-item" style="border:1px solid rgba(108,92,231,0.3);background:rgba(108,92,231,0.08)">
+                    <div class="support-icon">🚀</div>
+                    <div class="support-detail">
+                        <div class="support-label">${g.title}</div>
+                        <div class="support-value" style="color:var(--primary);font-size:0.8rem">Click to Join Official Community</div>
+                    </div>
+                    <div class="support-arrow">→</div>
+                </a>
+            `).join('');
+        }
+    } catch {}
 }
 
 // ─── Notifications ─────────────────────────────────────────────────────────────

@@ -103,6 +103,7 @@
                 <button class="s-btn" id="s-referrals" onclick="showPage('referrals')">🔗 Referrals</button>
                 <button class="s-btn" id="s-eligibility" onclick="showPage('eligibility')">✅ Eligibility</button>
                 <button class="s-btn" id="s-banks" onclick="showPage('banks')">🏦 Banks & UPI</button>
+                <button class="s-btn" id="s-support" onclick="showPage('support')">📞 Support & Groups</button>
                 <button class="s-btn" id="s-notifications" onclick="showPage('notifications')">🔔 Notifications</button>
                 <button class="s-btn" id="s-history" onclick="showPage('history')">📜 Round History</button>
             </nav>
@@ -129,6 +130,21 @@
                     <div class="stat-card warn" id="st-pend-wd-card"><div class="stat-val" id="st-pend-wd">0</div><div class="stat-label">Pending Withdrawals</div></div>
                     <div class="stat-card danger" id="st-dup-card"><div class="stat-val" id="st-dup">0</div><div class="stat-label">⚠️ Duplicate Deposits</div></div>
                     <div class="stat-card danger" id="st-susp-card"><div class="stat-val" id="st-susp">0</div><div class="stat-label">Suspended Users</div></div>
+                </div>
+
+                <!-- Platform Reset Card -->
+                <div class="section-card danger-zone" style="margin-top:24px;border:1px solid rgba(231,76,60,0.4);background:rgba(231,76,60,0.06);border-radius:12px;padding:20px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+                        <div>
+                            <h3 style="color:var(--danger);margin-bottom:4px">⚠️ Platform Factory Reset (Start From Zero)</h3>
+                            <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+                                Wipes all users, rounds, and bets back to zero. Preserves admin login (admin/admin123) and bank accounts.
+                            </p>
+                        </div>
+                        <button class="btn-action btn-reject" style="padding:10px 18px;font-size:0.9rem;font-weight:700" onclick="systemResetAll()">
+                            🔄 Reset Everything to Zero
+                        </button>
+                    </div>
                 </div>
             </section>
 
@@ -214,7 +230,7 @@
                                 <th>Commission</th>
                                 <th>Inactive</th>
                                 <th>Status</th>
-                                <th>VIP Pass</th>
+                                <th>Direct Withdrawal (VIP)</th>
                                 <th>Bank / UPI</th>
                                 <th>Actions</th>
                             </tr>
@@ -277,10 +293,13 @@
                             <tr>
                                 <th>User</th>
                                 <th>Referral Code</th>
-                                <th>Total Ref</th>
-                                <th>Bonus Qualified (≥₹300)</th>
-                                <th>0.04% Commission Earned</th>
-                                <th>Referred Users Progress</th>
+                                <th>Leg 1 (0.04%)</th>
+                                <th>Leg 2 (0.01%)</th>
+                                <th>Leg 3 (0.01%)</th>
+                                <th>Leg 4 (0.01%)</th>
+                                <th>Total Network</th>
+                                <th>Total Commission</th>
+                                <th>₹50 Milestone (≥₹300)</th>
                             </tr>
                         </thead>
                         <tbody id="referrals-tbody"></tbody>
@@ -298,7 +317,7 @@
                                 <th>Balance</th>
                                 <th>Deposited</th>
                                 <th>Referrals</th>
-                                <th>VIP Override</th>
+                                <th>Direct Withdrawal (VIP)</th>
                                 <th>Eligible</th>
                                 <th>Reasons</th>
                                 <th>Actions</th>
@@ -390,6 +409,63 @@
                             <tr><th>Round</th><th>Result</th><th>Total Bet</th><th>Payout</th><th>Profit</th><th>Date</th></tr>
                         </thead>
                         <tbody id="history-tbody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- SUPPORT & GROUPS MANAGEMENT -->
+            <section id="page-support" class="page hidden">
+                <!-- Support Helplines -->
+                <div class="section-card">
+                    <h3>📞 Add Support Helpline</h3>
+                    <div class="inline-form" style="display:flex;gap:8px;flex-wrap:wrap">
+                        <select id="as-type" style="padding:10px;background:rgba(255,255,255,0.06);border:1px solid var(--card-border);border-radius:8px;color:#fff">
+                            <option value="whatsapp">📱 WhatsApp</option>
+                            <option value="email">✉️ Email</option>
+                            <option value="phone">📞 Phone Call</option>
+                        </select>
+                        <input type="text" id="as-title" placeholder="Title (e.g. WhatsApp Helpline 1)">
+                        <input type="text" id="as-value" placeholder="Number / Email (e.g. +91 82601 04294)">
+                        <input type="text" id="as-link" placeholder="Custom Link (optional)">
+                        <button class="btn-primary btn-sm" onclick="addSupportContact()">Add Contact</button>
+                    </div>
+                </div>
+
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Title</th>
+                                <th>Contact / Value</th>
+                                <th>Link</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="support-contacts-tbody"></tbody>
+                    </table>
+                </div>
+
+                <!-- Community & Prediction Groups -->
+                <div class="section-card" style="margin-top:24px">
+                    <h3>🚀 Add Official Community / Prediction Group</h3>
+                    <div class="inline-form" style="display:flex;gap:8px;flex-wrap:wrap">
+                        <input type="text" id="ag-title" placeholder="Group Title (e.g. Official Telegram VIP Channel)" style="flex:1">
+                        <input type="text" id="ag-link" placeholder="Group Link (e.g. https://t.me/yourgroup)" style="flex:1">
+                        <button class="btn-primary btn-sm" onclick="addSupportGroup()">Add Group</button>
+                    </div>
+                </div>
+
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Group Title</th>
+                                <th>Group Link</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="support-groups-tbody"></tbody>
                     </table>
                 </div>
             </section>

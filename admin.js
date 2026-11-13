@@ -90,6 +90,7 @@ function showPage(name) {
         deposits: '💳 Deposits', withdrawals: '💸 Withdrawals',
         referrals: '🔗 Referrals', eligibility: '✅ Eligibility',
         banks: '🏦 Banks & UPI', notifications: '🔔 Notifications',
+        support: '📞 Support & Groups',
         history: '📜 Round History'
     };
     document.getElementById('page-title').textContent = titles[name] || name;
@@ -102,6 +103,7 @@ function showPage(name) {
     if (name === 'referrals') loadReferrals();
     if (name === 'eligibility') loadEligibility();
     if (name === 'banks') loadBanks();
+    if (name === 'support') loadSupportAdmin();
     if (name === 'notifications') loadNotifications();
     if (name === 'history') loadRoundHistory();
 
@@ -270,8 +272,11 @@ async function loadUsers() {
                 <td>${u.daysSinceActive !== null ? u.daysSinceActive + 'd' : '-'}</td>
                 <td><span class="badge ${u.suspended ? 'badge-suspended' : 'badge-active'}">${u.suspended ? 'SUSPENDED' : 'Active'}</span></td>
                 <td>
-                    <button class="btn-action ${u.vipWithdrawal ? 'btn-toggle-active' : ''}" onclick="toggleVip('${u.id}')">
-                        ${u.vipWithdrawal ? '⭐ VIP: ON' : 'VIP: OFF'}
+                    <button class="btn-action ${u.directWithdrawal || u.vipWithdrawal ? 'btn-toggle-active' : ''}" 
+                            style="${u.directWithdrawal || u.vipWithdrawal ? 'background:rgba(46,204,113,0.2);color:#2ecc71;border:1px solid #2ecc71;font-weight:600' : 'background:rgba(255,255,255,0.06);color:var(--text-dim)'}" 
+                            onclick="toggleDirectWithdrawal('${u.id}')" 
+                            title="${u.directWithdrawal || u.vipWithdrawal ? 'Direct Withdrawal Allowed (Targets Bypassed)' : 'Standard User (Must meet targets)'}">
+                        ${u.directWithdrawal || u.vipWithdrawal ? '⭐ Direct: ALLOWED' : '🔒 Standard Target'}
                     </button>
                 </td>
                 <td style="font-size:0.75rem">${u.bankAccount ? '🏦 ' + (u.bankAccount.accountName || 'Yes') : ''}${u.upiId ? ' 📲 ' + u.upiId : ''}</td>
@@ -315,13 +320,15 @@ async function addUser() {
     } catch (err) { showMsg('add-user-msg', err.message, 'error'); }
 }
 
-async function toggleVip(id) {
+async function toggleDirectWithdrawal(id) {
     try {
-        const res = await fetch(API + `/api/admin/users/${id}/toggle-vip`, { method: 'POST', headers: authHeaders() });
-        if (!res.ok) throw new Error('Failed');
+        const res = await fetch(API + `/api/admin/users/${id}/toggle-direct-withdrawal`, { method: 'POST', headers: authHeaders() });
+        if (!res.ok) throw new Error('Failed to update direct withdrawal permission');
         loadUsers();
+        if (typeof loadEligibility === 'function') loadEligibility();
     } catch (err) { alert(err.message); }
 }
+const toggleVip = toggleDirectWithdrawal;
 
 function openResetPassModal(id, username) {
     currentResetTargetUserId = id;
@@ -520,7 +527,7 @@ async function submitRejection() {
     } catch (err) { alert(err.message); }
 }
 
-// ─── Referrals ─────────────────────────────────────────────────────────────────
+// ─── Referrals (4 Legs) ────────────────────────────────────────────────────────
 async function loadReferrals() {
     try {
         const res = await fetch(API + '/api/admin/referrals', { headers: authHeaders() });
@@ -528,11 +535,14 @@ async function loadReferrals() {
         document.getElementById('referrals-tbody').innerHTML = refs.map(r => `
             <tr>
                 <td><strong>${r.username}</strong></td>
-                <td style="font-family:monospace">${r.referralCode}</td>
-                <td>${r.totalReferred}</td>
-                <td><strong style="color:var(--success)">${r.activeReferrals}</strong></td>
-                <td style="color:var(--success);font-weight:700">₹${r.totalCommissionEarned || 0}</td>
-                <td style="font-size:0.75rem">${r.referred.map(u => `${u.username}(₹${u.totalBet}/300 ${u.bonusPaid ? '✅' : '⏳'})`).join(', ') || '-'}</td>
+                <td><code style="color:var(--primary);font-weight:700">${r.referralCode}</code></td>
+                <td><strong style="color:var(--primary)">${r.leg1Count || 0}</strong></td>
+                <td>${r.leg2Count || 0}</td>
+                <td>${r.leg3Count || 0}</td>
+                <td>${r.leg4Count || 0}</td>
+                <td><strong>${r.totalNetwork || 0}</strong></td>
+                <td style="color:var(--success);font-weight:700">₹${(r.totalCommissionEarned || 0).toFixed(2)}</td>
+                <td><span class="badge ${r.bonusQualified > 0 ? 'badge-approved' : 'badge-pending'}">${r.bonusQualified || 0} users</span></td>
             </tr>
         `).join('');
     } catch {}
@@ -549,13 +559,36 @@ async function loadEligibility() {
                 <td>₹${u.balance}</td>
                 <td>₹${u.totalDeposited}</td>
                 <td>${u.referrals} (Active: ${u.activeReferrals})</td>
-                <td><button class="btn-action ${u.isVip ? 'btn-toggle-active' : ''}" onclick="toggleVip('${u.id}')">${u.isVip ? '⭐ VIP Enabled' : 'Standard'}</button></td>
+                <td>
+                    <button class="btn-action ${u.directWithdrawal || u.isVip ? 'btn-toggle-active' : ''}" 
+                            style="${u.directWithdrawal || u.isVip ? 'background:rgba(46,204,113,0.2);color:#2ecc71;border:1px solid #2ecc71;font-weight:600' : 'background:rgba(255,255,255,0.06);color:var(--text-dim)'}"
+                            onclick="toggleDirectWithdrawal('${u.id}')">
+                        ${u.directWithdrawal || u.isVip ? '⭐ Direct (VIP)' : '🔒 Standard'}
+                    </button>
+                </td>
                 <td>${u.eligible ? '✅ YES' : '❌ NO'}</td>
-                <td style="font-size:0.75rem">${u.isVip ? '⭐ VIP Pass Override' : (u.reasons.join('; ') || 'All requirements satisfied')}</td>
-                <td><button class="btn-action btn-approve" onclick="toggleVip('${u.id}')">Toggle VIP</button></td>
+                <td style="font-size:0.75rem">${u.directWithdrawal || u.isVip ? '⭐ Direct VIP Override (Targets Bypassed)' : (u.reasons.join('; ') || 'All requirements satisfied')}</td>
+                <td><button class="btn-action btn-approve" onclick="toggleDirectWithdrawal('${u.id}')">Toggle Access</button></td>
             </tr>
         `).join('');
     } catch {}
+}
+
+async function systemResetAll() {
+    const confirmation = prompt('⚠️ DANGER: This will delete ALL users, bets, and rounds and start the entire game from Round #1 at ZERO!\n\nType RESET to confirm:');
+    if (confirmation !== 'RESET') return alert('Reset cancelled.');
+    try {
+        const res = await fetch(API + '/api/admin/system/reset-all', {
+            method: 'POST',
+            headers: authHeaders()
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        alert('✅ Platform has been completely reset to zero! Page will now reload.');
+        window.location.reload();
+    } catch (err) {
+        alert('Reset failed: ' + err.message);
+    }
 }
 
 // ─── Banks & UPI Accounts ──────────────────────────────────────────────────────
@@ -801,6 +834,99 @@ async function loadRoundHistory() {
             </tr>
         `).join('');
     } catch {}
+}
+
+// ─── Support & Groups Admin Management ─────────────────────────────────────────
+async function loadSupportAdmin() {
+    try {
+        const res = await fetch(API + '/api/support-info');
+        const data = await res.json();
+
+        const contactsBody = document.getElementById('support-contacts-tbody');
+        if (contactsBody) {
+            contactsBody.innerHTML = (data.contacts || []).map(c => `
+                <tr>
+                    <td><span class="badge ${c.type === 'email' ? 'badge-pending' : 'badge-active'}">${c.type.toUpperCase()}</span></td>
+                    <td><strong>${c.title}</strong></td>
+                    <td>${c.value}</td>
+                    <td style="font-size:0.75rem;color:var(--primary);max-width:200px;overflow:hidden;text-overflow:ellipsis">${c.link}</td>
+                    <td><button class="btn-action btn-delete" onclick="deleteSupportContact('${c.id}')">🗑 Remove</button></td>
+                </tr>
+            `).join('');
+        }
+
+        const groupsBody = document.getElementById('support-groups-tbody');
+        if (groupsBody) {
+            groupsBody.innerHTML = (data.groups || []).map(g => `
+                <tr>
+                    <td><strong>${g.title}</strong></td>
+                    <td style="font-size:0.8rem;color:var(--primary)">${g.link}</td>
+                    <td><button class="btn-action btn-delete" onclick="deleteSupportGroup('${g.id}')">🗑 Remove</button></td>
+                </tr>
+            `).join('');
+        }
+    } catch {}
+}
+
+async function addSupportContact() {
+    const type = document.getElementById('as-type').value;
+    const title = document.getElementById('as-title').value.trim();
+    const value = document.getElementById('as-value').value.trim();
+    const link = document.getElementById('as-link').value.trim();
+
+    if (!title || !value) return alert('Please enter title and contact number/email');
+
+    try {
+        const res = await fetch(API + '/api/admin/support/contact', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ type, title, value, link })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        document.getElementById('as-title').value = '';
+        document.getElementById('as-value').value = '';
+        document.getElementById('as-link').value = '';
+        loadSupportAdmin();
+    } catch (err) { alert(err.message); }
+}
+
+async function deleteSupportContact(id) {
+    if (!confirm('Remove this support contact?')) return;
+    try {
+        const res = await fetch(API + `/api/admin/support/contact/${id}`, { method: 'DELETE', headers: authHeaders() });
+        if (!res.ok) throw new Error('Failed');
+        loadSupportAdmin();
+    } catch (err) { alert(err.message); }
+}
+
+async function addSupportGroup() {
+    const title = document.getElementById('ag-title').value.trim();
+    const link = document.getElementById('ag-link').value.trim();
+
+    if (!title || !link) return alert('Please enter group title and link');
+
+    try {
+        const res = await fetch(API + '/api/admin/support/group', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ title, link })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        document.getElementById('ag-title').value = '';
+        document.getElementById('ag-link').value = '';
+        loadSupportAdmin();
+    } catch (err) { alert(err.message); }
+}
+
+async function deleteSupportGroup(id) {
+    if (!confirm('Remove this group link?')) return;
+    try {
+        const res = await fetch(API + `/api/admin/support/group/${id}`, { method: 'DELETE', headers: authHeaders() });
+        if (!res.ok) throw new Error('Failed');
+        loadSupportAdmin();
+    } catch (err) { alert(err.message); }
 }
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────

@@ -18,6 +18,7 @@ const DB_FILE = path.join(__dirname, 'db.json');
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://colorwin:ColorWin2024Pass%21@game.xfh9tju.mongodb.net/?retryWrites=true&w=majority';
 
 // ─── Constants & Game Rules ───────────────────────────────────────────────────
+const CURRENT_SCHEMA_VERSION = '2.3.0_fresh_zero';
 const RULES = {
     MIN_WITHDRAW: 300,
     MIN_DEPOSITS: 200,          // total deposits required for standard withdrawal
@@ -29,8 +30,13 @@ const RULES = {
     AUTO_RESULT_DELAY: 7,       // auto-result picks lowest bet 7s after 00:00
     INACTIVE_DAYS: 15,
     REFERRAL_BONUS_WAGER: 300,  // referral must bet ₹300 cumulative
-    REFERRAL_BONUS_AMOUNT: 50,  // ₹50 one-time milestone bonus to referrer
-    WIN_COMMISSION_RATE: 0.0004 // 0.04% lifetime commission on every win of referral
+    REFERRAL_BONUS_AMOUNT: 50,  // ₹50 one-time milestone bonus to direct referrer
+    LEG_COMMISSION_RATES: [
+        0.0004, // Leg 1: 0.04% (Direct referral)
+        0.0001, // Leg 2: 0.01% (2nd level)
+        0.0001, // Leg 3: 0.01% (3rd level)
+        0.0001  // Leg 4: 0.01% (4th level)
+    ]
 };
 
 // ─── DB & Cloud Persistence (MongoDB Atlas + Local Fallback) ───────────────────
@@ -38,19 +44,68 @@ let inMemoryDB = null;
 let mongoCollection = null;
 let syncTimeout = null;
 
-async function initDatabase() {
-    let localData = {
-        users: [], rounds: [], bankAccounts: [], upiAccounts: [],
-        depositRequests: [], withdrawalRequests: [],
-        notifications: [], settings: { depositsEnabled: true },
+async function getFreshZeroState() {
+    const adminHash = await bcrypt.hash('admin123', 10);
+    return {
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        users: [
+            {
+                id: 'admin_1',
+                username: 'admin',
+                password: adminHash,
+                balance: 0,
+                role: 'admin',
+                totalBet: 0,
+                totalWon: 0,
+                totalDeposited: 0,
+                totalBetsPlaced: 0,
+                totalCommissionEarned: 0,
+                referralCode: 'ADMIN',
+                directWithdrawal: true,
+                vipWithdrawal: true,
+                lastActiveAt: new Date().toISOString(),
+                createdAt: new Date().toISOString()
+            }
+        ],
+        rounds: [],
+        bankAccounts: [
+            { id: 'bank_1', bankName: 'State Bank of India', accountHolder: 'ColorWin Official', accountNumber: '39482019481', ifsc: 'SBIN0001234', active: true, totalCollected: 0, lockedForAll: false },
+            { id: 'bank_2', bankName: 'HDFC Bank', accountHolder: 'ColorWin Official', accountNumber: '50100481928314', ifsc: 'HDFC0000543', active: true, totalCollected: 0, lockedForAll: false }
+        ],
+        upiAccounts: [
+            { id: 'upi_1', upiId: 'colorwin.pay@oksbi', displayName: 'ColorWin Official UPI', active: true, totalCollected: 0, lockedForAll: false },
+            { id: 'upi_2', upiId: 'colorwingame@paytm', displayName: 'ColorWin Fast UPI', active: true, totalCollected: 0, lockedForAll: false }
+        ],
+        depositRequests: [],
+        withdrawalRequests: [],
+        notifications: [],
+        settings: {
+            depositsEnabled: true,
+            support: {
+                contacts: [
+                    { id: 'c1', type: 'whatsapp', title: 'WhatsApp Helpline 1', value: '+91 82601 04294', link: 'https://wa.me/918260104294' },
+                    { id: 'c2', type: 'whatsapp', title: 'WhatsApp Helpline 2', value: '+91 81447 17930', link: 'https://wa.me/918144717930' },
+                    { id: 'c3', type: 'email', title: 'Official Email Support', value: 'blackcyberp@gmail.com', link: 'mailto:blackcyberp@gmail.com' }
+                ],
+                groups: [
+                    { id: 'g1', title: 'Official Telegram Channel', link: 'https://t.me/colorwin_official' },
+                    { id: 'g2', title: 'VIP Prediction WhatsApp Group', link: 'https://chat.whatsapp.com/' }
+                ]
+            }
+        },
         currentBankIndex: 0
     };
+}
+
+async function initDatabase() {
+    let localData = null;
     if (fs.existsSync(DB_FILE)) {
         try { localData = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8')); } catch {}
     }
-    if (!localData.upiAccounts) localData.upiAccounts = [];
-    if (!localData.notifications) localData.notifications = [];
-    if (!localData.settings) localData.settings = { depositsEnabled: true };
+    if (!localData || localData.schemaVersion !== CURRENT_SCHEMA_VERSION) {
+        localData = await getFreshZeroState();
+        try { fs.writeFileSync(DB_FILE, JSON.stringify(localData, null, 2)); } catch {}
+    }
     inMemoryDB = localData;
 
     if (MONGODB_URI) {
@@ -62,17 +117,20 @@ async function initDatabase() {
             console.log('✅ Connected to MongoDB Atlas permanent cloud database!');
 
             const cloudDoc = await mongoCollection.findOne({ _id: 'main_state' });
-            if (cloudDoc && cloudDoc.data) {
+            if (cloudDoc && cloudDoc.data && cloudDoc.data.schemaVersion === CURRENT_SCHEMA_VERSION) {
                 inMemoryDB = cloudDoc.data;
                 if (!inMemoryDB.settings) inMemoryDB.settings = { depositsEnabled: true };
                 console.log(`📦 Restored state from cloud: ${inMemoryDB.users.length} users, ${inMemoryDB.rounds.length} rounds.`);
             } else {
+                console.log(`🔄 Performing fresh zero reset for schema version: ${CURRENT_SCHEMA_VERSION}`);
+                inMemoryDB = await getFreshZeroState();
                 await mongoCollection.replaceOne(
                     { _id: 'main_state' },
                     { _id: 'main_state', data: inMemoryDB },
                     { upsert: true }
                 );
-                console.log('☁️ Initialized new state in MongoDB Atlas.');
+                try { fs.writeFileSync(DB_FILE, JSON.stringify(inMemoryDB, null, 2)); } catch {}
+                console.log('☁️ Initialized fresh zero state in MongoDB Atlas.');
             }
         } catch (err) {
             console.error('⚠️ MongoDB Atlas error (using local db.json):', err.message);
@@ -129,13 +187,15 @@ function generateReferralCode(username) {
 // ─── Eligibility ───────────────────────────────────────────────────────────────
 function checkWithdrawalEligibility(user, db) {
     const balance = user.balance || 0;
-    // VIP Fast Pass bypasses standard referral & deposit thresholds
-    if (user.vipWithdrawal) {
+    const isDirect = !!(user.directWithdrawal || user.vipWithdrawal);
+    // Direct Withdrawal (VIP Pass granted by Admin) bypasses standard referral & deposit thresholds
+    if (isDirect) {
         const eligible = balance >= RULES.MIN_WITHDRAW;
         return {
             eligible,
             reasons: eligible ? [] : [`Balance must be ≥ ₹${RULES.MIN_WITHDRAW}`],
             isVip: true,
+            directWithdrawal: true,
             totalDeposited: user.totalDeposited || 0,
             referrals: 0,
             activeReferrals: 0,
@@ -145,11 +205,11 @@ function checkWithdrawalEligibility(user, db) {
 
     const reasons = [];
     const betsByUser = {};
-    for (const round of db.rounds)
+    for (const round of (db.rounds || []))
         for (const bet of (round.bets || []))
             betsByUser[bet.userId] = (betsByUser[bet.userId] || 0) + 1;
 
-    const referrals = db.users.filter(u => u.referredBy === user.id);
+    const referrals = (db.users || []).filter(u => u.referredBy === user.id);
     const activeReferrals = referrals.filter(u => (betsByUser[u.id] || 0) >= RULES.MIN_BET_FOR_ACTIVE);
     const totalDeposited = user.totalDeposited || 0;
 
@@ -161,6 +221,7 @@ function checkWithdrawalEligibility(user, db) {
         eligible: reasons.length === 0,
         reasons,
         isVip: false,
+        directWithdrawal: false,
         totalDeposited,
         referrals: referrals.length,
         activeReferrals: activeReferrals.length,
@@ -306,20 +367,44 @@ function settleRound(result) {
         betSummary.push({ userId, username: user.username, color: bet.color, amount: bet.amount, won, payout });
         io.to(`user_${userId}`).emit('bet:result', { won, payout, newBalance: user.balance, color: result });
 
-        // 0.04% Lifetime Referral Commission on every winning bet
+        // 4-Leg Multi-Tier Referral Commission on every winning bet:
+        // Leg 1 (direct referrer): 0.04%
+        // Leg 2 (referrer's referrer): 0.01%
+        // Leg 3: 0.01%
+        // Leg 4: 0.01%
         if (won && payout > 0 && user.referredBy) {
-            const referrer = db.users.find(u => u.id === user.referredBy);
-            if (referrer) {
-                const commission = +(payout * RULES.WIN_COMMISSION_RATE).toFixed(2);
-                if (commission > 0) {
-                    referrer.balance = +(referrer.balance + commission).toFixed(2);
-                    referrer.totalCommissionEarned = +((referrer.totalCommissionEarned || 0) + commission).toFixed(2);
-                    io.to(`user_${referrer.id}`).emit('commission:earned', {
-                        commission,
-                        fromUser: user.username,
-                        newBalance: referrer.balance
-                    });
-                }
+            let currentUserId = user.id;
+            const visited = new Set([user.id]);
+            for (let leg = 0; leg < 4; leg++) {
+                const currentUser = db.users.find(u => u.id === currentUserId);
+                if (!currentUser || !currentUser.referredBy) break;
+                if (visited.has(currentUser.referredBy)) break;
+                const parent = db.users.find(u => u.id === currentUser.referredBy);
+                if (!parent) break;
+                visited.add(parent.id);
+
+                const rate = RULES.LEG_COMMISSION_RATES[leg] || 0.0001;
+                const rawCommission = payout * rate;
+                let commission = +(rawCommission.toFixed(2));
+                if (commission === 0 && rawCommission > 0) commission = 0.01;
+
+                parent.balance = +(parent.balance + commission).toFixed(2);
+                parent.totalCommissionEarned = +((parent.totalCommissionEarned || 0) + commission).toFixed(2);
+                if (!parent.legCommissions) parent.legCommissions = { leg1: 0, leg2: 0, leg3: 0, leg4: 0 };
+                parent.legCommissions[`leg${leg + 1}`] = +((parent.legCommissions[`leg${leg + 1}`] || 0) + commission).toFixed(2);
+
+                io.to(`user_${parent.id}`).emit('commission:earned', {
+                    commission,
+                    leg: leg + 1,
+                    ratePercent: leg === 0 ? '0.04%' : '0.01%',
+                    fromUser: user.username,
+                    newBalance: parent.balance,
+                    totalCommissionEarned: parent.totalCommissionEarned,
+                    legCommissions: parent.legCommissions
+                });
+                io.to(`user_${parent.id}`).emit('balance:updated', { balance: parent.balance });
+
+                currentUserId = parent.id;
             }
         }
 
@@ -475,13 +560,24 @@ function adminMiddleware(req, res, next) {
     } catch { res.status(401).json({ error: 'Invalid token' }); }
 }
 
+// ─── Active OTPs for Password Reset ───────────────────────────────────────────
+const activePasswordOTPs = {}; // userId -> { otp, expiresAt, phone, username }
+
 // ─── Auth ──────────────────────────────────────────────────────────────────────
 app.post('/api/register', async (req, res) => {
     const { username, password, referralCode, phone } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Missing username or password' });
+    const cleanUser = username.trim();
+    const cleanPhone = phone ? phone.trim() : null;
     const db = loadDB();
-    if (db.users.find(u => u.username.toLowerCase() === username.toLowerCase()))
-        return res.status(400).json({ error: 'Username already taken' });
+
+    if (db.users.find(u => u.username.toLowerCase() === cleanUser.toLowerCase())) {
+        return res.status(400).json({ error: 'Username already taken. Please choose another username. Duplicate accounts are not allowed.' });
+    }
+
+    if (cleanPhone && db.users.find(u => u.phone && u.phone === cleanPhone)) {
+        return res.status(400).json({ error: 'Mobile number already registered. Duplicate accounts are not allowed.' });
+    }
 
     let referredBy = null;
     if (referralCode) {
@@ -493,9 +589,9 @@ app.post('/api/register', async (req, res) => {
     const sessionToken = crypto.randomBytes(16).toString('hex');
     const user = {
         id: Date.now().toString(),
-        username,
+        username: cleanUser,
         password: hashed,
-        phone: phone ? phone.trim() : null,
+        phone: cleanPhone,
         balance: 50,
         role: 'user',
         totalBet: 0,
@@ -503,9 +599,11 @@ app.post('/api/register', async (req, res) => {
         totalDeposited: 0,
         totalBetsPlaced: 0,
         totalCommissionEarned: 0,
-        referralCode: generateReferralCode(username),
+        legCommissions: { leg1: 0, leg2: 0, leg3: 0, leg4: 0 },
+        referralCode: generateReferralCode(cleanUser),
         referredBy,
         referralBonusPaid: false,
+        directWithdrawal: false,
         vipWithdrawal: false,
         bankAccount: null,
         upiId: null,
@@ -517,19 +615,26 @@ app.post('/api/register', async (req, res) => {
     db.users.push(user);
     saveDB(db);
 
-    const token = jwt.sign({ id: user.id, username, role: 'user', sessionToken }, JWT_SECRET);
-    res.json({ token, user: { id: user.id, username, balance: user.balance, role: 'user', referralCode: user.referralCode, phone: user.phone } });
+    const token = jwt.sign({ id: user.id, username: user.username, role: 'user', sessionToken }, JWT_SECRET);
+    res.json({ token, user: { id: user.id, username: user.username, balance: user.balance, role: 'user', referralCode: user.referralCode, phone: user.phone } });
 });
 
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Missing fields' });
+    if (!username || !password) return res.status(400).json({ error: 'Missing username or password' });
     const db = loadDB();
-    const user = db.users.find(u => u.username.toLowerCase() === username.toLowerCase());
-    if (!user) return res.status(400).json({ error: 'Invalid credentials' });
+    const cleanUser = username.trim().toLowerCase();
+    const user = db.users.find(u => u.username.toLowerCase() === cleanUser);
+    if (!user) {
+        return res.status(400).json({ error: 'User not found. Please register. Duplicate accounts are not allowed.' });
+    }
     const valid = await bcrypt.compare(password, user.password);
-    if (!valid) return res.status(400).json({ error: 'Invalid credentials' });
-    if (isUserSuspended(user)) return res.status(403).json({ error: 'Account suspended due to inactivity. Contact support.', suspended: true });
+    if (!valid) {
+        return res.status(400).json({ error: 'Invalid password. Please check your password or reset via OTP.' });
+    }
+    if (isUserSuspended(user)) {
+        return res.status(403).json({ error: 'Account suspended due to inactivity (15+ days). Contact support.', suspended: true });
+    }
 
     // Single Device Enforcement: Invalidate previous session and notify previous device
     const sessionToken = crypto.randomBytes(16).toString('hex');
@@ -545,7 +650,76 @@ app.post('/api/login', async (req, res) => {
     res.json({ token, user: { id: user.id, username: user.username, balance: user.balance, role: user.role, referralCode: user.referralCode, phone: user.phone } });
 });
 
-// ─── Forgot Password Request ───────────────────────────────────────────────────
+// ─── OTP Password Reset ────────────────────────────────────────────────────────
+app.post('/api/forgot-password/send-otp', (req, res) => {
+    const { identifier } = req.body; // Can be mobile number or username
+    if (!identifier || !identifier.trim()) return res.status(400).json({ error: 'Mobile number or username is required' });
+    const q = identifier.trim();
+    const db = loadDB();
+    const user = db.users.find(u => (u.phone && u.phone === q) || u.username.toLowerCase() === q.toLowerCase());
+    if (!user) {
+        return res.status(404).json({ error: 'No account found with this mobile number or username. Please check or register.' });
+    }
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    activePasswordOTPs[user.id] = {
+        otp,
+        userId: user.id,
+        phone: user.phone,
+        username: user.username,
+        expiresAt: Date.now() + 10 * 60 * 1000 // 10 minutes
+    };
+
+    console.log(`📱 [OTP Verification] User @${user.username} (Phone: ${user.phone || 'N/A'}) OTP generated: ${otp}`);
+
+    // Notify Admin Panel
+    const notif = {
+        id: Date.now().toString(),
+        title: '🔑 Password Reset OTP Sent',
+        message: `User @${user.username} (${user.phone || 'Phone: N/A'}) requested password reset OTP: ${otp}`,
+        targetUserId: null,
+        targetUsername: 'Admin',
+        createdAt: new Date().toISOString()
+    };
+    db.notifications.push(notif);
+    saveDB(db);
+    io.to('admin_room').emit('notification:new', notif);
+
+    res.json({
+        success: true,
+        userId: user.id,
+        username: user.username,
+        otp, // sent for instant verification and testing
+        message: `OTP sent successfully! Enter the 6-digit code below to set your new password.`
+    });
+});
+
+app.post('/api/forgot-password/verify-reset', async (req, res) => {
+    const { userId, otp, newPassword } = req.body;
+    if (!userId || !otp || !newPassword) return res.status(400).json({ error: 'All fields (User, OTP, New Password) are required' });
+    if (newPassword.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
+
+    const record = activePasswordOTPs[userId];
+    if (!record || Date.now() > record.expiresAt) {
+        return res.status(400).json({ error: 'OTP has expired or is invalid. Please request a new OTP.' });
+    }
+    if (record.otp !== otp.trim()) {
+        return res.status(400).json({ error: 'Incorrect 6-digit OTP. Please enter the valid code.' });
+    }
+
+    const db = loadDB();
+    const user = db.users.find(u => u.id === userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    delete activePasswordOTPs[userId];
+    saveDB(db);
+
+    res.json({ success: true, message: 'Password reset successful! You can now login with your new password.' });
+});
+
+// Legacy backward-compatibility for forgot password
 app.post('/api/forgot-password', (req, res) => {
     const { username, phone } = req.body;
     if (!username) return res.status(400).json({ error: 'Username is required' });
@@ -567,6 +741,94 @@ app.post('/api/forgot-password', (req, res) => {
     res.json({ success: true, message: 'Reset request received. You can also reach support on WhatsApp for instant assistance.' });
 });
 
+// ─── Public Support & Color History Routes ─────────────────────────────────────
+app.get('/api/support-info', (req, res) => {
+    const db = loadDB();
+    const support = (db.settings && db.settings.support) || {
+        contacts: [
+            { id: 'c1', type: 'whatsapp', title: 'WhatsApp Helpline 1', value: '+91 82601 04294', link: 'https://wa.me/918260104294' },
+            { id: 'c2', type: 'whatsapp', title: 'WhatsApp Helpline 2', value: '+91 81447 17930', link: 'https://wa.me/918144717930' },
+            { id: 'c3', type: 'email', title: 'Official Email Support', value: 'blackcyberp@gmail.com', link: 'mailto:blackcyberp@gmail.com' }
+        ],
+        groups: [
+            { id: 'g1', title: 'Official Telegram Channel', link: 'https://t.me/colorwin_official' },
+            { id: 'g2', title: 'VIP Prediction WhatsApp Group', link: 'https://chat.whatsapp.com/' }
+        ]
+    };
+    res.json(support);
+});
+
+// Public Winning Color History (Last 50 rounds)
+app.get('/api/color-history', (req, res) => {
+    const db = loadDB();
+    const history = (db.rounds || []).slice(-50).reverse().map(r => ({
+        id: r.id,
+        result: r.result,
+        totalBet: r.totalBet || 0,
+        totalPayout: r.totalPayout || 0,
+        betsCount: (r.bets || []).length,
+        timestamp: r.timestamp
+    }));
+    res.json(history);
+});
+
+// ─── Admin Support Management ──────────────────────────────────────────────────
+app.post('/api/admin/support/contact', adminMiddleware, (req, res) => {
+    const { title, value, type, link } = req.body;
+    if (!title || !value) return res.status(400).json({ error: 'Title and value required' });
+    const db = loadDB();
+    if (!db.settings) db.settings = {};
+    if (!db.settings.support) db.settings.support = { contacts: [], groups: [] };
+    if (!db.settings.support.contacts) db.settings.support.contacts = [];
+
+    const newContact = {
+        id: Date.now().toString(),
+        type: type || 'whatsapp',
+        title: title.trim(),
+        value: value.trim(),
+        link: link ? link.trim() : (type === 'email' ? `mailto:${value.trim()}` : `https://wa.me/${value.replace(/\D/g, '')}`)
+    };
+    db.settings.support.contacts.push(newContact);
+    saveDB(db);
+    res.json({ success: true, contact: newContact });
+});
+
+app.delete('/api/admin/support/contact/:id', adminMiddleware, (req, res) => {
+    const db = loadDB();
+    if (db.settings && db.settings.support && db.settings.support.contacts) {
+        db.settings.support.contacts = db.settings.support.contacts.filter(c => c.id !== req.params.id);
+        saveDB(db);
+    }
+    res.json({ success: true });
+});
+
+app.post('/api/admin/support/group', adminMiddleware, (req, res) => {
+    const { title, link } = req.body;
+    if (!title || !link) return res.status(400).json({ error: 'Title and link required' });
+    const db = loadDB();
+    if (!db.settings) db.settings = {};
+    if (!db.settings.support) db.settings.support = { contacts: [], groups: [] };
+    if (!db.settings.support.groups) db.settings.support.groups = [];
+
+    const newGroup = {
+        id: Date.now().toString(),
+        title: title.trim(),
+        link: link.trim()
+    };
+    db.settings.support.groups.push(newGroup);
+    saveDB(db);
+    res.json({ success: true, group: newGroup });
+});
+
+app.delete('/api/admin/support/group/:id', adminMiddleware, (req, res) => {
+    const db = loadDB();
+    if (db.settings && db.settings.support && db.settings.support.groups) {
+        db.settings.support.groups = db.settings.support.groups.filter(g => g.id !== req.params.id);
+        saveDB(db);
+    }
+    res.json({ success: true });
+});
+
 // ─── User Routes ───────────────────────────────────────────────────────────────
 app.get('/api/me', authMiddleware, (req, res) => {
     const db = loadDB();
@@ -581,7 +843,9 @@ app.get('/api/me', authMiddleware, (req, res) => {
         totalBet: user.totalBet || 0, totalWon: user.totalWon || 0,
         totalDeposited: user.totalDeposited || 0, totalBetsPlaced: user.totalBetsPlaced || 0,
         totalCommissionEarned: user.totalCommissionEarned || 0,
-        vipWithdrawal: user.vipWithdrawal || false,
+        legCommissions: user.legCommissions || { leg1: 0, leg2: 0, leg3: 0, leg4: 0 },
+        vipWithdrawal: !!(user.directWithdrawal || user.vipWithdrawal),
+        directWithdrawal: !!(user.directWithdrawal || user.vipWithdrawal),
         referralCode: user.referralCode, referredBy: user.referredBy,
         lastActiveAt: user.lastActiveAt, withdrawalEligibility: eligibility
     });
@@ -661,31 +925,51 @@ app.delete('/api/upi', authMiddleware, (req, res) => {
     res.json({ success: true });
 });
 
-// Referrals
+// Referrals (4 Legs)
 app.get('/api/my-referrals', authMiddleware, (req, res) => {
     const db = loadDB();
+    const user = db.users.find(u => u.id === req.user.id) || req.user;
     const betsByUser = {};
-    for (const round of db.rounds)
+    for (const round of (db.rounds || []))
         for (const bet of (round.bets || []))
             betsByUser[bet.userId] = (betsByUser[bet.userId] || 0) + 1;
 
-    const referrals = db.users
-        .filter(u => u.referredBy === req.user.id)
-        .map(u => ({
-            id: u.id,
-            username: u.username,
-            totalBet: u.totalBet || 0,
-            betsPlaced: betsByUser[u.id] || 0,
-            active: (u.totalBet || 0) >= RULES.REFERRAL_BONUS_WAGER,
-            bonusPaid: u.referralBonusPaid || false,
-            joinedAt: u.createdAt
-        }));
+    const formatUser = (u) => ({
+        id: u.id,
+        username: u.username,
+        totalBet: u.totalBet || 0,
+        betsPlaced: betsByUser[u.id] || 0,
+        active: (u.totalBet || 0) >= RULES.REFERRAL_BONUS_WAGER,
+        bonusPaid: u.referralBonusPaid || false,
+        joinedAt: u.createdAt
+    });
+
+    const leg1Users = (db.users || []).filter(u => u.referredBy === req.user.id);
+    const leg1Ids = new Set(leg1Users.map(u => u.id));
+
+    const leg2Users = (db.users || []).filter(u => u.referredBy && leg1Ids.has(u.referredBy));
+    const leg2Ids = new Set(leg2Users.map(u => u.id));
+
+    const leg3Users = (db.users || []).filter(u => u.referredBy && leg2Ids.has(u.referredBy));
+    const leg3Ids = new Set(leg3Users.map(u => u.id));
+
+    const leg4Users = (db.users || []).filter(u => u.referredBy && leg3Ids.has(u.referredBy));
+
+    const legCommissions = user.legCommissions || { leg1: 0, leg2: 0, leg3: 0, leg4: 0 };
 
     res.json({
-        referrals,
-        activeCount: referrals.filter(r => r.active).length,
-        totalCount: referrals.length,
-        totalCommissionEarned: req.user.totalCommissionEarned || 0
+        referrals: leg1Users.map(formatUser),
+        legs: {
+            leg1: { count: leg1Users.length, rate: '0.04%', earned: +(legCommissions.leg1 || 0).toFixed(2), members: leg1Users.map(formatUser) },
+            leg2: { count: leg2Users.length, rate: '0.01%', earned: +(legCommissions.leg2 || 0).toFixed(2), members: leg2Users.map(formatUser) },
+            leg3: { count: leg3Users.length, rate: '0.01%', earned: +(legCommissions.leg3 || 0).toFixed(2), members: leg3Users.map(formatUser) },
+            leg4: { count: leg4Users.length, rate: '0.01%', earned: +(legCommissions.leg4 || 0).toFixed(2), members: leg4Users.map(formatUser) }
+        },
+        activeCount: leg1Users.filter(u => (u.totalBet || 0) >= RULES.REFERRAL_BONUS_WAGER).length,
+        totalCount: leg1Users.length + leg2Users.length + leg3Users.length + leg4Users.length,
+        leg1Count: leg1Users.length,
+        totalCommissionEarned: +(user.totalCommissionEarned || 0).toFixed(2),
+        legCommissions
     });
 });
 
@@ -814,8 +1098,10 @@ app.get('/api/admin/users', adminMiddleware, (req, res) => {
             balance: u.balance,
             totalBet: u.totalBet || 0, totalWon: u.totalWon || 0,
             totalDeposited: u.totalDeposited || 0, totalBetsPlaced: u.totalBetsPlaced || 0,
-            totalCommissionEarned: u.totalCommissionEarned || 0,
-            vipWithdrawal: u.vipWithdrawal || false,
+            totalCommissionEarned: +(u.totalCommissionEarned || 0).toFixed(2),
+            legCommissions: u.legCommissions || { leg1: 0, leg2: 0, leg3: 0, leg4: 0 },
+            vipWithdrawal: !!(u.directWithdrawal || u.vipWithdrawal),
+            directWithdrawal: !!(u.directWithdrawal || u.vipWithdrawal),
             referralCode: u.referralCode, bankAccount: u.bankAccount || null,
             upiId: u.upiId || null, lastActiveAt: u.lastActiveAt,
             daysSinceActive, suspended: isUserSuspended(u),
@@ -836,8 +1122,11 @@ app.post('/api/admin/users/add', adminMiddleware, async (req, res) => {
         phone: phone ? phone.trim() : null,
         balance: Number(balance) || 50, role: 'user',
         totalBet: 0, totalWon: 0, totalDeposited: 0, totalBetsPlaced: 0,
-        totalCommissionEarned: 0, referralCode: generateReferralCode(username),
-        referredBy: null, referralBonusPaid: false, vipWithdrawal: false,
+        totalCommissionEarned: 0,
+        legCommissions: { leg1: 0, leg2: 0, leg3: 0, leg4: 0 },
+        referralCode: generateReferralCode(username),
+        referredBy: null, referralBonusPaid: false,
+        directWithdrawal: false, vipWithdrawal: false,
         bankAccount: null, upiId: null, sessionToken: crypto.randomBytes(16).toString('hex'),
         lastActiveAt: new Date().toISOString(), forceSuspended: false,
         createdAt: new Date().toISOString()
@@ -854,14 +1143,18 @@ app.delete('/api/admin/users/:id', adminMiddleware, (req, res) => {
     res.json({ success: true });
 });
 
-app.post('/api/admin/users/:id/toggle-vip', adminMiddleware, (req, res) => {
+const toggleDirectWithdrawal = (req, res) => {
     const db = loadDB();
     const user = db.users.find(u => u.id === req.params.id);
     if (!user) return res.status(404).json({ error: 'Not found' });
-    user.vipWithdrawal = !user.vipWithdrawal;
+    const newVal = !(user.directWithdrawal || user.vipWithdrawal);
+    user.directWithdrawal = newVal;
+    user.vipWithdrawal = newVal;
     saveDB(db);
-    res.json({ success: true, vipWithdrawal: user.vipWithdrawal });
-});
+    res.json({ success: true, directWithdrawal: newVal, vipWithdrawal: newVal });
+};
+app.post('/api/admin/users/:id/toggle-vip', adminMiddleware, toggleDirectWithdrawal);
+app.post('/api/admin/users/:id/toggle-direct-withdrawal', adminMiddleware, toggleDirectWithdrawal);
 
 app.post('/api/admin/users/:id/reset-password', adminMiddleware, async (req, res) => {
     const { newPassword } = req.body;
@@ -933,29 +1226,55 @@ app.delete('/api/admin/notifications/:id', adminMiddleware, (req, res) => {
     res.json({ success: true });
 });
 
-// Referrals
+// Referrals (4 Legs Network for Admin)
 app.get('/api/admin/referrals', adminMiddleware, (req, res) => {
     const db = loadDB();
-    const betsByUser = {};
-    for (const round of db.rounds)
-        for (const bet of (round.bets || []))
-            betsByUser[bet.userId] = (betsByUser[bet.userId] || 0) + 1;
-    res.json(db.users.filter(u => u.role !== 'admin').map(u => {
-        const referred = db.users.filter(r => r.referredBy === u.id).map(r => ({
-            id: r.id, username: r.username,
-            totalBet: r.totalBet || 0,
-            active: (r.totalBet || 0) >= RULES.REFERRAL_BONUS_WAGER,
-            bonusPaid: r.referralBonusPaid || false,
-            joinedAt: r.createdAt
-        }));
+    const users = db.users.filter(u => u.role !== 'admin');
+    
+    res.json(users.map(u => {
+        const leg1 = users.filter(x => x.referredBy === u.id);
+        const leg1Ids = new Set(leg1.map(x => x.id));
+        const leg2 = users.filter(x => x.referredBy && leg1Ids.has(x.referredBy));
+        const leg2Ids = new Set(leg2.map(x => x.id));
+        const leg3 = users.filter(x => x.referredBy && leg2Ids.has(x.referredBy));
+        const leg3Ids = new Set(leg3.map(x => x.id));
+        const leg4 = users.filter(x => x.referredBy && leg3Ids.has(x.referredBy));
+
+        const legCommissions = u.legCommissions || { leg1: 0, leg2: 0, leg3: 0, leg4: 0 };
         return {
-            id: u.id, username: u.username, referralCode: u.referralCode,
-            totalCommissionEarned: u.totalCommissionEarned || 0,
-            totalReferred: referred.length,
-            activeReferrals: referred.filter(r => r.active).length,
-            referred
+            id: u.id,
+            username: u.username,
+            referralCode: u.referralCode,
+            leg1Count: leg1.length,
+            leg2Count: leg2.length,
+            leg3Count: leg3.length,
+            leg4Count: leg4.length,
+            totalNetwork: leg1.length + leg2.length + leg3.length + leg4.length,
+            bonusQualified: leg1.filter(x => (x.totalBet || 0) >= RULES.REFERRAL_BONUS_WAGER).length,
+            totalCommissionEarned: +(u.totalCommissionEarned || 0).toFixed(2),
+            legCommissions
         };
     }));
+});
+
+// Factory Reset Platform to Zero (Admin only)
+app.post('/api/admin/system/reset-all', adminMiddleware, async (req, res) => {
+    try {
+        const freshDB = await getFreshZeroState();
+        saveDB(freshDB);
+
+        gameState.roundId = 1;
+        gameState.phase = 'betting';
+        gameState.timeLeft = RULES.ROUND_DURATION;
+        gameState.bets = {};
+        gameState.bettingOpen = true;
+        resultHistory = [];
+
+        io.emit('game:state', getPublicState());
+        res.json({ success: true, message: 'Platform has been completely reset to zero!' });
+    } catch (err) {
+        res.status(500).json({ error: 'Reset failed: ' + err.message });
+    }
 });
 
 app.get('/api/admin/withdrawal-eligibility', adminMiddleware, (req, res) => {

@@ -23,43 +23,62 @@
                     <div class="tc-container">
                         <label class="tc-label">
                             <input type="checkbox" id="auth-tc" required>
-                            <span>I agree to the <a href="#" id="open-tc-link">Terms & Conditions</a></span>
+                            <span>I agree to the <a href="javascript:void(0)" id="open-tc-link" onclick="openTcModal(event)">Terms & Conditions</a></span>
                         </label>
                     </div>
                 </div>
                 <button type="submit" id="auth-btn" class="btn-primary">Login</button>
                 <div id="forgot-link-box" class="forgot-box">
-                    <a href="#" id="open-forgot-link">Forgot Password?</a>
+                    <a href="javascript:void(0)" id="open-forgot-link" onclick="openForgotModal(event)">Forgot Password?</a>
                 </div>
             </form>
             <p class="auth-toggle">Don't have an account? <a href="#" id="toggle-auth">Register</a></p>
         </div>
     </div>
 
-    <!-- ═══ FORGOT PASSWORD MODAL ═══ -->
+    <!-- ═══ FORGOT PASSWORD MODAL (MOBILE OTP + RESET) ═══ -->
     <div id="forgot-modal" class="modal hidden">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>🔑 Reset Password</h3>
+                <h3>🔑 Reset Password via OTP</h3>
                 <button class="modal-close" onclick="closeForgotModal()">&times;</button>
             </div>
             <div style="padding:16px">
                 <p style="font-size:0.85rem;color:var(--text-dim);margin-bottom:14px;line-height:1.4">
-                    Enter your registered username and phone number. Our support team will verify and reset your credentials immediately.
+                    Enter your registered Mobile Number or Username to receive a 6-digit OTP code to reset your password.
                 </p>
-                <div class="form-group">
-                    <label>Username</label>
-                    <input type="text" id="forgot-user" placeholder="Enter your username">
+
+                <!-- Step 1: Send OTP -->
+                <div id="forgot-step-1">
+                    <div class="form-group" style="margin-bottom:12px">
+                        <label style="font-size:0.8rem;color:var(--text-dim);display:block;margin-bottom:4px">Mobile Number or Username</label>
+                        <input type="text" id="forgot-identifier" placeholder="e.g. 9876543210 or username" style="width:100%;padding:12px;background:rgba(255,255,255,0.06);border:1px solid var(--card-border);border-radius:10px;color:#fff;outline:none">
+                    </div>
+                    <button class="btn-primary" id="btn-send-otp" onclick="sendForgotPasswordOTP()" style="margin-bottom:12px">📲 Send 6-Digit OTP</button>
                 </div>
-                <div class="form-group">
-                    <label>Registered Phone Number</label>
-                    <input type="tel" id="forgot-phone" placeholder="Enter phone number">
+
+                <!-- Step 2: Verify OTP & New Password -->
+                <div id="forgot-step-2" class="hidden">
+                    <div id="otp-alert-box" style="background:rgba(46,204,113,0.15);border:1px solid #2ecc71;color:#2ecc71;padding:10px 12px;border-radius:8px;font-size:0.85rem;margin-bottom:14px;text-align:center">
+                        <!-- Populated with OTP message -->
+                    </div>
+                    <div class="form-group" style="margin-bottom:12px">
+                        <label style="font-size:0.8rem;color:var(--text-dim);display:block;margin-bottom:4px">Enter 6-Digit OTP</label>
+                        <input type="text" id="forgot-otp-input" placeholder="000000" maxlength="6" style="width:100%;padding:12px;background:rgba(255,255,255,0.06);border:1px solid var(--card-border);border-radius:10px;color:#fff;font-family:monospace;font-size:1.2rem;letter-spacing:6px;text-align:center;outline:none">
+                    </div>
+                    <div class="form-group" style="margin-bottom:14px">
+                        <label style="font-size:0.8rem;color:var(--text-dim);display:block;margin-bottom:4px">New Password</label>
+                        <input type="password" id="forgot-new-password" placeholder="Enter new password (min 4 chars)" style="width:100%;padding:12px;background:rgba(255,255,255,0.06);border:1px solid var(--card-border);border-radius:10px;color:#fff;outline:none">
+                    </div>
+                    <button class="btn-primary" id="btn-reset-pass" onclick="submitVerifyResetPassword()" style="margin-bottom:12px">✅ Verify OTP & Reset Password</button>
+                    <button class="btn-secondary" onclick="resetForgotModalToStep1()" style="width:100%;padding:10px;border-radius:8px;background:transparent;border:1px solid var(--card-border);color:var(--text-dim);font-size:0.8rem;cursor:pointer;margin-bottom:12px">← Back to Phone / Username</button>
                 </div>
-                <button class="btn-primary" onclick="submitForgotPassword()" style="margin-bottom:10px">Submit Request</button>
-                <a href="https://wa.me/918260104294?text=Hello%20ColorWin%20Support,%20I%20forgot%20my%20password." target="_blank" class="btn-whatsapp" style="display:block;text-align:center;padding:12px;border-radius:10px">
+
+                <div id="forgot-msg" class="msg hidden" style="margin-bottom:10px"></div>
+
+                <a href="https://wa.me/918260104294?text=Hello%20ColorWin%20Support,%20I%20need%20help%20with%20my%20password." target="_blank" class="btn-whatsapp" style="display:block;text-align:center;padding:12px;border-radius:10px;text-decoration:none">
                     📱 Contact Support on WhatsApp
                 </a>
-                <div id="forgot-msg" class="msg hidden"></div>
             </div>
         </div>
     </div>
@@ -238,6 +257,17 @@
                     </div>
                     <div id="bet-status" class="bet-status hidden"></div>
                 </div>
+
+                <!-- Recent 10 Winning Colors Quick View -->
+                <div class="game-recent-box" style="margin-top:16px;background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:14px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                        <span style="font-weight:700;font-size:0.85rem">🎨 Recent Winning Colors</span>
+                        <a href="javascript:void(0)" onclick="showPage('history')" style="color:var(--primary);font-size:0.75rem;text-decoration:none;font-weight:600">View Full History →</a>
+                    </div>
+                    <div id="game-recent-colors-list" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
             </div>
         </section>
 
@@ -351,9 +381,34 @@
 
         <!-- HISTORY PAGE -->
         <section id="page-history" class="page hidden">
-            <h3>📜 Bet History</h3>
-            <div id="history-list" class="history-list">
-                <div class="empty-state">No history yet</div>
+            <div class="wallet-tabs" style="margin-bottom:14px">
+                <button class="w-tab active" id="tab-game-outcomes" onclick="switchHistoryTab('game')">🎨 Game Outcomes</button>
+                <button class="w-tab" id="tab-my-bets" onclick="switchHistoryTab('my')">👤 My Bets</button>
+            </div>
+
+            <!-- Game Outcomes History Tab (All Rounds) -->
+            <div id="panel-game-history">
+                <div class="table-wrap" style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;overflow:hidden">
+                    <table class="data-table" style="width:100%;font-size:0.85rem">
+                        <thead>
+                            <tr style="border-bottom:1px solid var(--card-border)">
+                                <th style="padding:10px 8px;text-align:left">Period</th>
+                                <th style="padding:10px 8px;text-align:center">Winning Color</th>
+                                <th style="padding:10px 8px;text-align:right">Time</th>
+                            </tr>
+                        </thead>
+                        <tbody id="game-outcomes-tbody">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- My Personal Bets Tab -->
+            <div id="panel-my-history" class="hidden">
+                <div id="history-list" class="history-list">
+                    <div class="empty-state">No bets placed yet</div>
+                </div>
             </div>
         </section>
 
@@ -365,32 +420,17 @@
                     <h2>ColorWin Support</h2>
                     <p>Official 24/7 Assistance Desk</p>
                 </div>
-                <div class="support-channels">
-                    <a href="https://wa.me/918260104294" target="_blank" class="support-item whatsapp">
-                        <div class="support-icon">📱</div>
-                        <div class="support-detail">
-                            <div class="support-label">WhatsApp Helpline 1</div>
-                            <div class="support-value">+91 82601 04294</div>
-                        </div>
-                        <div class="support-arrow">→</div>
-                    </a>
-                    <a href="https://wa.me/918144717930" target="_blank" class="support-item whatsapp">
-                        <div class="support-icon">📱</div>
-                        <div class="support-detail">
-                            <div class="support-label">WhatsApp Helpline 2</div>
-                            <div class="support-value">+91 81447 17930</div>
-                        </div>
-                        <div class="support-arrow">→</div>
-                    </a>
-                    <a href="mailto:blackcyberp@gmail.com" class="support-item email">
-                        <div class="support-icon">✉️</div>
-                        <div class="support-detail">
-                            <div class="support-label">Official Email Support</div>
-                            <div class="support-value">blackcyberp@gmail.com</div>
-                        </div>
-                        <div class="support-arrow">→</div>
-                    </a>
+                
+                <h4 style="font-size:0.85rem;color:var(--text-dim);margin:16px 0 8px;text-align:left">📞 Official Helplines</h4>
+                <div class="support-channels" id="support-channels-list">
+                    <!-- Populated dynamically from server -->
                 </div>
+
+                <h4 style="font-size:0.85rem;color:var(--text-dim);margin:18px 0 8px;text-align:left">🚀 Official Groups & Channels</h4>
+                <div class="support-channels" id="support-groups-list">
+                    <!-- Populated dynamically from server -->
+                </div>
+
                 <div class="support-footer">
                     <p>💡 Average support response time: Under 15 minutes</p>
                 </div>
@@ -406,14 +446,15 @@
                 <div class="profile-stats">
                     <div class="p-stat"><span class="p-val" id="p-bets">0</span><span class="p-label">Bets</span></div>
                     <div class="p-stat"><span class="p-val" id="p-won">₹0</span><span class="p-label">Won</span></div>
-                    <div class="p-stat"><span class="p-val" id="p-commission" style="color:var(--success)">₹0</span><span class="p-label">Commission (0.04%)</span></div>
+                    <div class="p-stat"><span class="p-val" id="p-commission" style="color:var(--success)">₹0</span><span class="p-label">Total Commission</span></div>
                 </div>
             </div>
 
             <div class="referral-card">
-                <h3>🔗 Referral Rewards</h3>
+                <h3>🔗 4-Tier Referral Program</h3>
                 <div style="font-size:0.8rem;color:var(--text-dim);margin-bottom:12px">
-                    🎁 <strong>₹50 Direct Bonus</strong> once your friend bets ₹300 + <strong>0.04% commission</strong> on every winning bet!
+                    🎁 <strong>₹50 Direct Bonus</strong> once your direct friend bets ₹300 cumulative.<br>
+                    ⚡ <strong>Winning Commission on Every Win:</strong> Leg 1: <strong>0.04%</strong> | Leg 2: <strong>0.01%</strong> | Leg 3: <strong>0.01%</strong> | Leg 4: <strong>0.01%</strong>
                 </div>
                 <div class="ref-code-box">
                     <span id="ref-code">---</span>
@@ -423,8 +464,33 @@
                     <input type="text" id="ref-link" readonly>
                     <button class="btn-copy" onclick="copyRefLink()">📋</button>
                 </div>
+
+                <!-- 4 Legs Overview Grid -->
+                <div class="legs-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0 10px;text-align:center">
+                    <div class="leg-card" style="background:rgba(255,255,255,0.04);padding:8px 4px;border-radius:10px;border:1px solid rgba(255,255,255,0.06)">
+                        <div style="font-size:0.65rem;color:var(--text-dim)">Leg 1 (0.04%)</div>
+                        <div style="font-size:1.05rem;font-weight:700;color:var(--primary)" id="leg1-count">0</div>
+                        <div style="font-size:0.65rem;color:var(--success)" id="leg1-earned">₹0</div>
+                    </div>
+                    <div class="leg-card" style="background:rgba(255,255,255,0.04);padding:8px 4px;border-radius:10px;border:1px solid rgba(255,255,255,0.06)">
+                        <div style="font-size:0.65rem;color:var(--text-dim)">Leg 2 (0.01%)</div>
+                        <div style="font-size:1.05rem;font-weight:700" id="leg2-count">0</div>
+                        <div style="font-size:0.65rem;color:var(--success)" id="leg2-earned">₹0</div>
+                    </div>
+                    <div class="leg-card" style="background:rgba(255,255,255,0.04);padding:8px 4px;border-radius:10px;border:1px solid rgba(255,255,255,0.06)">
+                        <div style="font-size:0.65rem;color:var(--text-dim)">Leg 3 (0.01%)</div>
+                        <div style="font-size:1.05rem;font-weight:700" id="leg3-count">0</div>
+                        <div style="font-size:0.65rem;color:var(--success)" id="leg3-earned">₹0</div>
+                    </div>
+                    <div class="leg-card" style="background:rgba(255,255,255,0.04);padding:8px 4px;border-radius:10px;border:1px solid rgba(255,255,255,0.06)">
+                        <div style="font-size:0.65rem;color:var(--text-dim)">Leg 4 (0.01%)</div>
+                        <div style="font-size:1.05rem;font-weight:700" id="leg4-count">0</div>
+                        <div style="font-size:0.65rem;color:var(--success)" id="leg4-earned">₹0</div>
+                    </div>
+                </div>
+
                 <div class="ref-stats">
-                    <span>Referred: <strong id="ref-total">0</strong></span>
+                    <span>Direct (Leg 1): <strong id="ref-total">0</strong></span>
                     <span>Bonus Qualified: <strong id="ref-active">0</strong></span>
                 </div>
                 <div id="ref-list" class="ref-list"></div>

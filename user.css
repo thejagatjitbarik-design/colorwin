@@ -434,12 +434,13 @@ body {
 .ref-item .ref-active { color: var(--success); font-weight: 600; font-size: 0.75rem; }
 .ref-item .ref-inactive { color: var(--danger); font-weight: 600; font-size: 0.75rem; }
 
-/* ═══ NOTIFICATION MODAL ═══ */
+/* ═══ MODALS ═══ */
 .modal {
-    position: fixed; inset: 0; z-index: 600;
-    background: rgba(0,0,0,0.6);
+    position: fixed; inset: 0; z-index: 2500;
+    background: rgba(0,0,0,0.75);
+    backdrop-filter: blur(8px);
     display: flex; align-items: flex-start; justify-content: center;
-    padding-top: 60px;
+    padding-top: 50px;
 }
 .modal-content {
     background: var(--bg2); border: 1px solid var(--card-border);
